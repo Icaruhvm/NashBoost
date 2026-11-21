@@ -19,8 +19,19 @@ namespace Nash
     public static class AppEntry
     {
         [STAThread]
-        public static void Main()
+        public static void Main(string[] args)
         {
+            if (args != null && args.Length > 0 && string.Equals(args[0], "/ram", StringComparison.OrdinalIgnoreCase))
+            {
+                var full = false;
+                for (var i = 1; i < args.Length; i++)
+                    if (string.Equals(args[i], "/full", StringComparison.OrdinalIgnoreCase)) full = true;
+                try { System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal; } catch { }
+                var lines = Tweaks.CleanRam(full);
+                var msg = lines.Count == 0 ? "Limpeza de RAM concluída." : lines[lines.Count - 1];
+                try { Tweaks.Notify(msg); } catch { }
+                return;
+            }
             var app = new Application();
             app.ShutdownMode = ShutdownMode.OnMainWindowClose;
             app.Run(new Shell());
@@ -329,9 +340,12 @@ namespace Nash
             UpdateChrome();
         }
 
+        static BitmapImage logoBmp;
+
         Image Logo(double size)
         {
             var image = new Image { Width = size, Height = size, Stretch = Stretch.Uniform };
+            if (logoBmp != null) { image.Source = logoBmp; return image; }
             try
             {
                 var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Nash.logo.png");
@@ -346,9 +360,12 @@ namespace Nash
                     bmp.BeginInit();
                     bmp.StreamSource = stream;
                     bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.DecodePixelWidth = 160;
                     bmp.EndInit();
                     bmp.Freeze();
-                    image.Source = bmp;
+                    if (logoBmp == null) logoBmp = bmp;
+                    stream.Dispose();
+                    image.Source = logoBmp;
                 }
             }
             catch { }
@@ -732,6 +749,9 @@ namespace Nash
             list.Children.Add(Row("Cache do FiveM", "Use se o FiveM estiver travando. A próxima entrada baixa os arquivos de novo.", clean, "fivem", false, "Redownload"));
             list.Children.Add(Row("Cache de shaders", "Apaga o cache da placa. A próxima partida pode engasgar enquanto os shaders são recriados.", clean, "shaders", false, "Recria"));
             list.Children.Add(Row("Vídeos do Game Bar", "Apaga os clipes gravados na pasta Vídeos. Não mexe em outras pastas.", clean, "captures", false, null));
+            list.Children.Add(Row("Limpar memória, modo suave", "Fecha coisa inútil em segundo plano e libera memória. Jogo, Discord, Steam e Valorant ficam. Dá para usar com o jogo aberto.", clean, "ram", false, null));
+            list.Children.Add(Row("Limpar memória, modo completo", "Libera o cache todo. Pode engasgar um instante.", clean, "ramfull", false, "Pode engasgar"));
+            list.Children.Add(Row("Atalho CTRL+ALT+R", "Cria um atalho na área de trabalho. O atalho de teclado limpa no modo suave, sem abrir a janela, inclusive dentro do jogo.", clean, "ramkey", false, null));
             card.Child = list;
             root.Children.Add(card);
             var apply = Button("Limpar selecionados", true);
@@ -741,8 +761,13 @@ namespace Nash
             {
                 var ids = On(clean);
                 if (ids.Count == 0) { Toast("Marque pelo menos um item."); return; }
-                if (!await Ask("Limpar os itens marcados?", "A limpeza libera espaço. Ela não aumenta FPS sozinha.", Names(ids), "Limpar", false)) return;
-                await Run("Limpeza concluída", "Apagando os arquivos marcados.", () => Tweaks.Clean(ids));
+                var hasRam = ids.Contains("ram") || ids.Contains("ramfull");
+                var onlyRam = true;
+                foreach (var id in ids)
+                    if (id != "ram" && id != "ramfull" && id != "ramkey") onlyRam = false;
+                var hint = hasRam && onlyRam ? "Libera RAM na hora. Não aumenta FPS e não apaga arquivos." : hasRam ? "Os arquivos saem de vez. A RAM liberada é na hora e não aumenta FPS." : "A limpeza libera espaço. Ela não aumenta FPS sozinha.";
+                if (!await Ask("Limpar os itens marcados?", hint, Names(ids), "Limpar", false)) return;
+                await Run("Limpeza concluída", hasRam ? "Liberando memória e o que mais estiver marcado." : "Apagando os arquivos marcados.", () => Tweaks.Clean(ids));
             };
             root.Children.Add(apply);
             return root;
@@ -900,7 +925,7 @@ namespace Nash
             noteStack.Children.Add(Text("O que este programa não faz", 18, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
             foreach (var line in new[] {
                 "Não desliga antivírus, Windows Update, busca ou SysMain.",
-                "Não esvazia a memória RAM nem apaga o prefetch para prometer FPS.",
+                "A limpeza de RAM fica na aba Limpeza. Ela não aumenta FPS.",
                 "Não trava o processador em 100% nem desliga a otimização de tela cheia.",
                 "Não baixa programa da NVIDIA. Use o Reflex dentro do jogo." })
                 noteStack.Children.Add(Text("●  " + line, 14, Palette.Text, FontWeights.Normal, new Thickness(0, 3, 0, 0)));
@@ -1056,6 +1081,7 @@ namespace Nash
             await Ask(title, result.Reboot ? "Parte disso só vale depois de reiniciar." : "Concluído.", result.Lines, "Fechar", true);
             if (result.Reboot && await Ask("Reiniciar agora?", "O PC reinicia em 15 segundos. Salve o que estiver aberto.", new string[0], "Reiniciar", false))
                 Tweaks.Reboot();
+            Tweaks.DropQuickCache();
             RefreshStatus();
         }
 
@@ -1205,7 +1231,8 @@ namespace Nash
                 { "mem", "Desligar integridade de memória" }, { "edge", "Remover o Edge" },
                 { "temp", "Arquivos temporários" }, { "recycle", "Lixeira" }, { "wu", "Cache do Windows Update" },
                 { "thumbs", "Miniaturas" }, { "prefetch", "Prefetch" }, { "valorant", "Logs do Valorant" }, { "fivem", "Cache do FiveM" },
-                { "shaders", "Cache de shaders" }, { "captures", "Vídeos do Game Bar" }
+                { "shaders", "Cache de shaders" }, { "captures", "Vídeos do Game Bar" },
+                { "ram", "Limpar memória, modo suave" }, { "ramfull", "Limpar memória, modo completo" }, { "ramkey", "Atalho CTRL+ALT+R" }
             };
             return ids.Select(id => map.ContainsKey(id) ? map[id] : id).ToList();
         }

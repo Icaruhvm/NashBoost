@@ -10,7 +10,9 @@ No mouse, além de desligar a aceleração, a curva fica reta na escala desta te
 
 O perfil de mídia dos jogos fica com prioridade alta, do jeito que esses guias completam a chave que o programa já gravava. Na rede com fio, a economia de energia da placa (EEE) desliga junto com a suspensão do USB. A rede pode piscar uma vez. Os serviços do Windows passam a caber em menos processos, usando a RAM deste PC, como o winutil faz.
 
-Ficou de fora de propósito: fila do mouse em 16 ou 20, prioridade realtime no driver, Nagle, plano Ultimate, desligar a otimização de tela cheia, timer e limpar RAM. Isso aparece em vários repositórios e atrapalha mais do que ajuda.
+Ficou de fora de propósito: fila do mouse em 16 ou 20, prioridade realtime no driver, Nagle, plano Ultimate, desligar a otimização de tela cheia e timer. Isso aparece em vários repositórios e atrapalha mais do que ajuda.
+
+A limpeza de memória do .bat antigo voltou para a aba Limpeza. Tem o modo suave, o completo, e o atalho CTRL+ALT+R, que roda sem abrir a janela. Não entra no 1 clique. Jogo, Discord, Steam e Valorant ficam de fora dessa limpeza.
 
 ## 2.0.1
 

@@ -4,7 +4,7 @@ Versão de testes. O aplicativo ainda não está pronto. O que tem aqui pode mud
 
 Programa de Windows 10 e 11 para quem joga. Muda mouse, teclado, Game Bar e app da Store que fica acordado sem você abrir. A conta fica só neste PC.
 
-Não limpa RAM. Não mexe em antivírus, Windows Update nem na pesquisa.
+Não mexe em antivírus, Windows Update nem na pesquisa. A limpeza de RAM fica na aba Limpeza, fora do 1 clique.
 
 ## Instalar
 

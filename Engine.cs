@@ -121,6 +121,20 @@ namespace Nash
             catch { }
         }
 
+        static string cachedWindows;
+        static string cachedCpu;
+        static string cachedGpu;
+        static bool hardwareCached;
+        static bool usbCached;
+        static bool usbValue;
+        static bool? memoryCached;
+
+        public static void DropQuickCache()
+        {
+            usbCached = false;
+            memoryCached = null;
+        }
+
         public static bool IsAdmin()
         {
             var id = System.Security.Principal.WindowsIdentity.GetCurrent();
@@ -131,48 +145,56 @@ namespace Nash
         public static PcStatus ReadStatus()
         {
             var s = new PcStatus { Admin = IsAdmin() };
-            try
+            if (!hardwareCached)
             {
-                using (var cv = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                cachedWindows = "Windows";
+                try
                 {
-                    var product = Convert.ToString(cv.GetValue("ProductName"));
-                    var build = Convert.ToInt32(cv.GetValue("CurrentBuildNumber"));
-                    if (build >= 22000) product = (product ?? "").Replace("Windows 10", "Windows 11");
-                    s.Windows = string.IsNullOrEmpty(product) ? "Windows" : product;
+                    using (var cv = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                    {
+                        var product = Convert.ToString(cv.GetValue("ProductName"));
+                        var build = Convert.ToInt32(cv.GetValue("CurrentBuildNumber"));
+                        if (build >= 22000) product = (product ?? "").Replace("Windows 10", "Windows 11");
+                        if (!string.IsNullOrEmpty(product)) cachedWindows = product;
+                    }
                 }
-            }
-            catch { s.Windows = "Windows"; }
-            try
-            {
-                using (var q = new ManagementObjectSearcher("SELECT Name FROM Win32_Processor"))
-                foreach (var o in q.Get()) { s.Cpu = CleanCpu(Convert.ToString(o["Name"])); break; }
-            }
-            catch { }
-            try
-            {
-                string best = "";
-                ulong bestRam = 0;
-                using (var q = new ManagementObjectSearcher("SELECT Name, AdapterRAM FROM Win32_VideoController"))
-                foreach (ManagementObject o in q.Get())
+                catch { }
+                try
                 {
-                    var name = Convert.ToString(o["Name"]) ?? "";
-                    if (Regex.IsMatch(name, "Parsec|Virtual|Basic Display|Remote Display|IddSample|Indirect Display", RegexOptions.IgnoreCase)) continue;
-                    ulong ram = 0;
-                    try { ram = Convert.ToUInt64(o["AdapterRAM"]); } catch { }
-                    if (best.Length == 0 || ram > bestRam) { best = CleanGpu(name); bestRam = ram; }
+                    using (var q = new ManagementObjectSearcher("SELECT Name FROM Win32_Processor"))
+                    foreach (var o in q.Get()) { cachedCpu = CleanCpu(Convert.ToString(o["Name"])); break; }
                 }
-                s.Gpu = best;
+                catch { }
+                try
+                {
+                    string best = "";
+                    ulong bestRam = 0;
+                    using (var q = new ManagementObjectSearcher("SELECT Name, AdapterRAM FROM Win32_VideoController"))
+                    foreach (ManagementObject o in q.Get())
+                    {
+                        var name = Convert.ToString(o["Name"]) ?? "";
+                        if (Regex.IsMatch(name, "Parsec|Virtual|Basic Display|Remote Display|IddSample|Indirect Display", RegexOptions.IgnoreCase)) continue;
+                        ulong ram = 0;
+                        try { ram = Convert.ToUInt64(o["AdapterRAM"]); } catch { }
+                        if (best.Length == 0 || ram > bestRam) { best = CleanGpu(name); bestRam = ram; }
+                    }
+                    cachedGpu = best;
+                }
+                catch { }
+                hardwareCached = true;
             }
-            catch { }
+            s.Windows = cachedWindows ?? "Windows";
+            s.Cpu = cachedCpu ?? "";
+            s.Gpu = cachedGpu ?? "";
             try
             {
-                using (var q = new ManagementObjectSearcher("SELECT TotalVisibleMemorySize, FreePhysicalMemory FROM Win32_OperatingSystem"))
-                foreach (ManagementObject o in q.Get())
+                var mem = new Native.MemStat();
+                mem.dwLength = (uint)Marshal.SizeOf(typeof(Native.MemStat));
+                if (Native.MemStatus(ref mem) && mem.ullTotalPhys > 0)
                 {
-                    var total = Math.Round(Convert.ToDouble(o["TotalVisibleMemorySize"]) / 1024.0 / 1024.0, 1);
-                    var free = Math.Round(Convert.ToDouble(o["FreePhysicalMemory"]) / 1024.0 / 1024.0, 1);
+                    var total = Math.Round(mem.ullTotalPhys / 1024.0 / 1024.0 / 1024.0, 1);
+                    var free = Math.Round(mem.ullAvailPhys / 1024.0 / 1024.0 / 1024.0, 1);
                     s.Ram = free.ToString("0.0") + " GB livres de " + total.ToString("0.0") + " GB";
-                    break;
                 }
             }
             catch { }
@@ -199,7 +221,8 @@ namespace Nash
                 }
             }
             catch { }
-            s.UsbOk = UsbSuspendOff();
+            if (!usbCached) { usbValue = UsbSuspendOff(); usbCached = true; }
+            s.UsbOk = usbValue;
             try
             {
                 using (var k = Registry.CurrentUser.OpenSubKey(@"System\GameConfigStore"))
@@ -936,8 +959,207 @@ namespace Nash
                     r.Add("Vídeos gravados pelo Game Bar apagados.");
                 }
             }
+            if (set.Contains("ram") || set.Contains("ramfull"))
+                foreach (var line in CleanRam(set.Contains("ramfull"))) r.Add(line);
+            if (set.Contains("ramkey")) r.Add(InstallRamHotkey());
             try { File.WriteAllText(StateFile, DateTime.Now.ToString("dd/MM/yyyy HH:mm")); } catch { }
             return r;
+        }
+
+        public static List<string> CleanRam(bool full)
+        {
+            var lines = new List<string>();
+            int beforeAvail, total;
+            MemSnap(out beforeAvail, out total);
+            var usedBefore = Percent(beforeAvail, total);
+            var closed = new List<string>();
+            foreach (var name in new[] { "OneDrive", "Teams", "ms-teams", "Widgets", "WidgetService", "PhoneExperienceHost", "YourPhone", "GameBar", "GameBarFTServer", "GameBarPresenceWriter", "SkypeApp", "SkypeBackgroundHost", "Cortana" })
+            {
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    try { p.Kill(); if (!closed.Contains(p.ProcessName)) closed.Add(p.ProcessName); }
+                    catch { }
+                }
+            }
+            var edge = Process.GetProcessesByName("msedge");
+            var edgeWindow = false;
+            foreach (var p in edge)
+                if (p.MainWindowHandle != IntPtr.Zero) edgeWindow = true;
+            if (!edgeWindow)
+            {
+                foreach (var p in edge)
+                {
+                    try { p.Kill(); if (!closed.Contains("msedge")) closed.Add("msedge"); }
+                    catch { }
+                }
+            }
+            if (closed.Count > 0) lines.Add("Fechados: " + string.Join(", ", closed.ToArray()) + ".");
+            else lines.Add("Nenhum processo inútil aberto.");
+            EnablePriv("SeProfileSingleProcessPrivilege");
+            EnablePriv("SeIncreaseQuotaPrivilege");
+            int fg;
+            Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out fg);
+            var self = Process.GetCurrentProcess().Id;
+            var trimmed = 0;
+            foreach (var p in Process.GetProcesses())
+            {
+                try
+                {
+                    if (p.Id == fg || p.Id == self) continue;
+                    if (RamKeepName(p.ProcessName)) continue;
+                    if (p.WorkingSet64 < 30L * 1024L * 1024L) continue;
+                    var handle = Native.OpenProcess(0x0500, false, p.Id);
+                    if (handle == IntPtr.Zero) continue;
+                    try { if (Native.EmptyWorkingSet(handle)) trimmed++; }
+                    finally { Native.CloseHandle(handle); }
+                }
+                catch { }
+            }
+            lines.Add("Memória reduzida em " + trimmed + " processos grandes.");
+            MemCmd(3);
+            if (full)
+            {
+                MemCmd(4);
+                lines.Add("Cache completo liberado.");
+            }
+            else
+            {
+                MemCmd(5);
+                lines.Add("Cache de baixa prioridade liberado, modo suave.");
+            }
+            System.Threading.Thread.Sleep(2000);
+            int afterAvail;
+            MemSnap(out afterAvail, out total);
+            var usedAfter = Percent(afterAvail, total);
+            var gain = afterAvail - beforeAvail;
+            var sign = gain >= 0 ? "+" : "";
+            lines.Add("RAM livre: " + beforeAvail + " para " + afterAvail + " MB (" + sign + gain + " MB). Em uso: " + usedBefore + "% para " + usedAfter + "%.");
+            return lines;
+        }
+
+        static int Percent(int avail, int total)
+        {
+            if (total < 1) return 0;
+            return (int)Math.Round(100.0 * (total - avail) / total);
+        }
+
+        static void MemSnap(out int availMb, out int totalMb)
+        {
+            var mem = new Native.MemStat();
+            mem.dwLength = (uint)Marshal.SizeOf(typeof(Native.MemStat));
+            availMb = 0;
+            totalMb = 1;
+            if (!Native.MemStatus(ref mem)) return;
+            availMb = (int)(mem.ullAvailPhys / (1024UL * 1024UL));
+            totalMb = (int)(mem.ullTotalPhys / (1024UL * 1024UL));
+            if (totalMb < 1) totalMb = 1;
+        }
+
+        static void MemCmd(int command)
+        {
+            Native.NtSetSystemInformation(80, ref command, 4);
+        }
+
+        static void EnablePriv(string name)
+        {
+            IntPtr token;
+            if (!Native.OpenProcessToken(Native.CurrentProcess(), 0x28, out token)) return;
+            try
+            {
+                var tp = new Native.TokenPriv();
+                tp.Count = 1;
+                tp.Attr = 2;
+                if (!Native.LookupPrivilegeValue(null, name, out tp.Luid)) return;
+                Native.AdjustTokenPrivileges(token, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+            }
+            finally { Native.CloseHandle(token); }
+        }
+
+        static bool RamKeepName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return true;
+            var n = name.ToLowerInvariant();
+            if (n.StartsWith("valorant") || n.StartsWith("riotclient") || n.StartsWith("gta5") || n.StartsWith("fivem") || n.StartsWith("nashboost")) return true;
+            switch (n)
+            {
+                case "system":
+                case "idle":
+                case "registry":
+                case "memory compression":
+                case "secure system":
+                case "smss":
+                case "csrss":
+                case "wininit":
+                case "winlogon":
+                case "services":
+                case "lsass":
+                case "dwm":
+                case "audiodg":
+                case "fontdrvhost":
+                case "sihost":
+                case "taskhostw":
+                case "ctfmon":
+                case "explorer":
+                case "shellexperiencehost":
+                case "startmenuexperiencehost":
+                case "searchhost":
+                case "textinputhost":
+                case "vgc":
+                case "vgtray":
+                case "cs2":
+                case "steam":
+                case "steamwebhelper":
+                case "discord":
+                case "obs64":
+                case "msmpeng":
+                case "nissrv":
+                case "securityhealthservice":
+                    return true;
+            }
+            return false;
+        }
+
+        static string InstallRamHotkey()
+        {
+            string exe;
+            try { exe = Process.GetCurrentProcess().MainModule.FileName; }
+            catch { exe = System.Reflection.Assembly.GetExecutingAssembly().Location; }
+            if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) return "Não achei o programa para criar o atalho.";
+            var code = Run("schtasks.exe", "/Create /TN LimparRAM /TR \"\\\"" + exe + "\\\" /ram\" /SC ONCE /ST 00:00 /RL HIGHEST /F");
+            if (code != 0) return "Não consegui criar a tarefa do atalho. Feche e abra de novo aceitando o pedido de administrador.";
+            RunPowerShell("Set-ScheduledTask -TaskName 'LimparRAM' -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable) | Out-Null");
+            try
+            {
+                var desk = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                var lnk = Path.Combine(desk, "Limpar RAM.lnk");
+                var sch = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "schtasks.exe");
+                var shellType = Type.GetTypeFromProgID("WScript.Shell");
+                var shell = Activator.CreateInstance(shellType);
+                var link = shellType.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { lnk });
+                var linkType = link.GetType();
+                var set = System.Reflection.BindingFlags.SetProperty;
+                linkType.InvokeMember("TargetPath", set, null, link, new object[] { sch });
+                linkType.InvokeMember("Arguments", set, null, link, new object[] { "/Run /TN LimparRAM" });
+                linkType.InvokeMember("WorkingDirectory", set, null, link, new object[] { Environment.GetFolderPath(Environment.SpecialFolder.System) });
+                linkType.InvokeMember("WindowStyle", set, null, link, new object[] { 7 });
+                linkType.InvokeMember("Description", set, null, link, new object[] { "Limpa a RAM sem fechar jogos" });
+                linkType.InvokeMember("Hotkey", set, null, link, new object[] { "CTRL+ALT+R" });
+                linkType.InvokeMember("IconLocation", set, null, link, new object[] { exe + ",0" });
+                linkType.InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, link, null);
+            }
+            catch { return "A tarefa foi criada, mas o atalho da área de trabalho não."; }
+            return "Atalho Limpar RAM na área de trabalho. CTRL+ALT+R limpa no modo suave. Para tirar, apague o atalho e a tarefa LimparRAM.";
+        }
+
+        public static void Notify(string text)
+        {
+            var icon = new System.Windows.Forms.NotifyIcon();
+            icon.Icon = System.Drawing.SystemIcons.Information;
+            icon.Visible = true;
+            icon.ShowBalloonTip(4000, "Limpar RAM", text ?? "", System.Windows.Forms.ToolTipIcon.Info);
+            System.Threading.Thread.Sleep(5000);
+            icon.Visible = false;
+            icon.Dispose();
         }
 
         public static List<StoreApp> ScanApps()
@@ -1189,12 +1411,18 @@ namespace Nash
 
         static bool MemoryOn()
         {
+            if (memoryCached.HasValue) return memoryCached.Value;
+            var on = false;
             try
             {
                 using (var k = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity"))
                 {
                     if (k != null && k.GetValue("Enabled") != null)
-                        return Convert.ToInt32(k.GetValue("Enabled")) == 1;
+                    {
+                        on = Convert.ToInt32(k.GetValue("Enabled")) == 1;
+                        memoryCached = on;
+                        return on;
+                    }
                 }
             }
             catch { }
@@ -1202,10 +1430,14 @@ namespace Nash
             {
                 using (var q = new ManagementObjectSearcher(@"root\Microsoft\Windows\DeviceGuard", "SELECT SecurityServicesConfigured, SecurityServicesRunning FROM Win32_DeviceGuard"))
                 foreach (ManagementObject o in q.Get())
-                    return HasTwo(o["SecurityServicesConfigured"]) || HasTwo(o["SecurityServicesRunning"]);
+                {
+                    on = HasTwo(o["SecurityServicesConfigured"]) || HasTwo(o["SecurityServicesRunning"]);
+                    break;
+                }
             }
             catch { }
-            return false;
+            memoryCached = on;
+            return on;
         }
 
         static bool HasTwo(object value)
@@ -1385,6 +1617,48 @@ namespace Nash
             public struct StickyKeys { public uint cbSize; public uint dwFlags; }
             [DllImport("user32.dll", EntryPoint = "SystemParametersInfo", SetLastError = true)]
             public static extern bool SetSticky(uint action, uint param, ref StickyKeys value, uint flags);
+            [DllImport("kernel32.dll", EntryPoint = "GlobalMemoryStatusEx", SetLastError = true)]
+            public static extern bool MemStatus(ref MemStat status);
+            [DllImport("kernel32.dll", EntryPoint = "GetCurrentProcess")]
+            public static extern IntPtr CurrentProcess();
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr OpenProcess(int access, bool inherit, int pid);
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool CloseHandle(IntPtr handle);
+            [DllImport("psapi.dll")]
+            public static extern bool EmptyWorkingSet(IntPtr handle);
+            [DllImport("ntdll.dll")]
+            public static extern int NtSetSystemInformation(int cls, ref int info, int len);
+            [DllImport("advapi32.dll", SetLastError = true)]
+            public static extern bool OpenProcessToken(IntPtr process, int access, out IntPtr token);
+            [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            public static extern bool LookupPrivilegeValue(string system, string name, out long luid);
+            [DllImport("advapi32.dll", SetLastError = true)]
+            public static extern bool AdjustTokenPrivileges(IntPtr token, bool disable, ref TokenPriv next, int len, IntPtr prev, IntPtr ret);
+            [DllImport("user32.dll")]
+            public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")]
+            public static extern int GetWindowThreadProcessId(IntPtr window, out int pid);
+            [StructLayout(LayoutKind.Sequential)]
+            public struct MemStat
+            {
+                public uint dwLength;
+                public uint dwMemoryLoad;
+                public ulong ullTotalPhys;
+                public ulong ullAvailPhys;
+                public ulong ullTotalPageFile;
+                public ulong ullAvailPageFile;
+                public ulong ullTotalVirtual;
+                public ulong ullAvailVirtual;
+                public ulong ullAvailExtendedVirtual;
+            }
+            [StructLayout(LayoutKind.Sequential, Pack = 4)]
+            public struct TokenPriv
+            {
+                public int Count;
+                public long Luid;
+                public int Attr;
+            }
         }
     }
 }
