@@ -524,7 +524,7 @@ namespace Nash
             };
             foot.Children.Add(who);
             foot.Children.Add(logout);
-            foot.Children.Add(Text("v2.0", 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 8, 0, 0)));
+            foot.Children.Add(Text("v2.0.1", 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 8, 0, 0)));
             DockPanel.SetDock(foot, Dock.Bottom);
             var menu = new StackPanel { Margin = new Thickness(8, 0, 8, 0) };
             foreach (var item in new[] {
@@ -649,7 +649,7 @@ namespace Nash
         {
             var root = new StackPanel();
             root.Children.Add(Text("Jogo", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("O que muda na mira, no teclado, na placa e no Valorant. Os números são lidos do Windows.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
+            root.Children.Add(Text("O que muda na mira, no teclado, na placa e no Valorant. Nada começa marcado. Os números acima são lidos do Windows.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
             var meters = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 14) };
             jogoMouse = Meter(meters, "Mouse");
             jogoKey = Meter(meters, "Teclado");
@@ -658,12 +658,12 @@ namespace Nash
             root.Children.Add(meters);
             var card = Card();
             var list = new StackPanel();
-            list.Children.Add(Row("Aceleração do mouse", "Desliga a aceleração. O ponteiro fica na marca padrão, sem acelerar.", game, "mouse", true, null));
-            list.Children.Add(Row("Teclado imediato", "Atraso inicial em zero e sem o aviso de Sticky Keys.", game, "keyboard", true, null));
-            list.Children.Add(Row("USB acordado na tomada", "Mouse e teclado não dormem no meio do uso.", game, "network", true, null));
-            list.Children.Add(Row("Gravação do Game Bar", "Para a captura em segundo plano e deixa o Modo de Jogo ligado.", game, "gamedvr", true, null));
-            list.Children.Add(Row("GPU acelerada", "Menos latência em placa compatível. Vale depois de reiniciar.", game, "hags", true, null));
-            list.Children.Add(Row("Prioridade do CS2 e do FiveM", "Um nível acima do normal, e a GPU dedicada quando o notebook tem duas.", game, "games", true, null));
+            list.Children.Add(Row("Aceleração do mouse", "Desliga a aceleração. O ponteiro fica na marca padrão, sem acelerar.", game, "mouse", false, null));
+            list.Children.Add(Row("Teclado imediato", "Atraso inicial em zero e sem o aviso de Sticky Keys.", game, "keyboard", false, null));
+            list.Children.Add(Row("USB acordado na tomada", "Mouse e teclado não dormem no meio do uso.", game, "network", false, null));
+            list.Children.Add(Row("Gravação do Game Bar", "Para a captura em segundo plano e deixa o Modo de Jogo ligado.", game, "gamedvr", false, null));
+            list.Children.Add(Row("GPU acelerada", "Menos latência em placa compatível. Vale depois de reiniciar.", game, "hags", false, null));
+            list.Children.Add(Row("Prioridade do CS2 e do FiveM", "Um nível acima do normal, e a GPU dedicada quando o notebook tem duas.", game, "games", false, null));
             list.Children.Add(Row("Ligar integridade de memória", "O Valorant fecha quando isso está desligado. Vale depois de reiniciar.", game, "memon", false, "Valorant"));
             card.Child = list;
             root.Children.Add(card);
@@ -689,13 +689,13 @@ namespace Nash
         {
             var root = new StackPanel();
             root.Children.Add(Text("Sistema", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("Energia, o que o Windows coleta e o peso da interface. Antivírus e Windows Update continuam ligados.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
+            root.Children.Add(Text("Energia, o que o Windows coleta e o peso da interface. Nada começa marcado. Antivírus e Windows Update continuam ligados.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
             var card = Card();
             var list = new StackPanel();
-            list.Children.Add(Row("Energia para jogos", "Plano equilibrado no modo Melhor desempenho. A CPU não fica presa em 100%.", system, "power", true, null));
-            list.Children.Add(Row("Apps em segundo plano", "Apps da Microsoft Store deixam de ficar acordados. Steam, Discord e o que você abre continuam normais.", system, "background", true, null));
-            list.Children.Add(Row("Telemetria e anúncios", "Desliga coleta de diagnóstico, sugestões, o Copilot e o download de atualizações de outros PCs. A atualização continua.", system, "telemetry", true, null));
-            list.Children.Add(Row("Interface mais leve", "Menos animação e transparência. No Windows 11, o menu do botão direito volta ao formato clássico.", system, "ui", true, null));
+            list.Children.Add(Row("Energia para jogos", "Plano equilibrado no modo Melhor desempenho. A CPU não fica presa em 100%.", system, "power", false, null));
+            list.Children.Add(Row("Apps em segundo plano", "Apps da Microsoft Store deixam de ficar acordados. Steam, Discord e o que você abre continuam normais.", system, "background", false, null));
+            list.Children.Add(Row("Telemetria e anúncios", "Desliga coleta de diagnóstico, sugestões, o Copilot e o download de atualizações de outros PCs. A atualização continua.", system, "telemetry", false, null));
+            list.Children.Add(Row("Interface mais leve", "Menos animação e transparência. No Windows 11, o menu do botão direito volta ao formato clássico.", system, "ui", false, null));
             card.Child = list;
             root.Children.Add(card);
             var apply = Button("Aplicar ajustes de sistema", true);
@@ -716,14 +716,15 @@ namespace Nash
         {
             var root = new StackPanel();
             root.Children.Add(Text("Limpeza", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            root.Children.Add(Text("Nada começa marcado. Marque só o que quer apagar.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 0)));
             lastClean = Text("Última limpeza: ainda não foi feita por aqui.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14));
             root.Children.Add(lastClean);
             var card = Card();
             var list = new StackPanel();
-            list.Children.Add(Row("Arquivos temporários", "Remove temporários do Windows e do usuário.", clean, "temp", true, null));
-            list.Children.Add(Row("Lixeira", "Apaga o que está na lixeira de todas as unidades.", clean, "recycle", true, null));
-            list.Children.Add(Row("Cache do Windows Update", "Remove instaladores já baixados. A atualização continua.", clean, "wu", true, null));
-            list.Children.Add(Row("Miniaturas", "As miniaturas do Explorador são recriadas depois.", clean, "thumbs", true, null));
+            list.Children.Add(Row("Arquivos temporários", "Remove temporários do Windows e do usuário.", clean, "temp", false, null));
+            list.Children.Add(Row("Lixeira", "Apaga o que está na lixeira de todas as unidades.", clean, "recycle", false, null));
+            list.Children.Add(Row("Cache do Windows Update", "Remove instaladores já baixados. A atualização continua.", clean, "wu", false, null));
+            list.Children.Add(Row("Miniaturas", "As miniaturas do Explorador são recriadas depois.", clean, "thumbs", false, null));
             list.Children.Add(Row("Prefetch", "Deixa a próxima abertura de programas mais lenta. Não aumenta FPS.", clean, "prefetch", false, "Não recomendado"));
             list.Children.Add(Row("Logs do Valorant", "Apaga logs e crashes. Configuração e sensibilidade ficam.", clean, "valorant", false, null));
             list.Children.Add(Row("Cache do FiveM", "Use se o FiveM estiver travando. A próxima entrada baixa os arquivos de novo.", clean, "fivem", false, "Redownload"));
@@ -749,7 +750,7 @@ namespace Nash
         {
             var root = new StackPanel();
             root.Children.Add(Text("Aplicativos", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("O que o Windows colocou sozinho, e os programas que abrem junto com o PC. Spotify, Discord, Steam, a Loja, o Paint e o Game Bar não entram na remoção.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 12)));
+            root.Children.Add(Text("O que o Windows colocou sozinho, e os programas que abrem junto com o PC. Nada começa marcado. Spotify, Discord, Steam, a Loja, o Paint e o Game Bar não entram na remoção.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 12)));
             appSummary = Text("Lendo os aplicativos deste PC…", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 12));
             root.Children.Add(appSummary);
             root.Children.Add(Text("INSTALADOS AGORA", 12, Palette.Muted, FontWeights.Bold, new Thickness(0, 0, 0, 8)));
@@ -978,7 +979,7 @@ namespace Nash
                     installedHost.Children.Add(Text(group.ToUpperInvariant(), 12, Palette.Muted, FontWeights.Bold, new Thickness(0, 8, 0, 4)));
                     foreach (var appItem in installed.Where(a => a.Group == group))
                     {
-                        var sw = new SwitchBox(true);
+                        var sw = new SwitchBox(false);
                         picks.Add(new AppPick { App = appItem, Box = sw });
                         installedHost.Children.Add(InfoRow(appItem.Name, appItem.Desc, appItem.Installed ? "Instalado" : "Provisionado", sw));
                     }
@@ -1037,6 +1038,11 @@ namespace Nash
         async Task Run(string title, string busyLine, Func<JobResult> work)
         {
             if (busyOn) return;
+            if (!Tweaks.IsAdmin())
+            {
+                Toast("O Nash Boost não está como administrador. Feche e abra de novo, e aceite o aviso do Windows.");
+                return;
+            }
             busyOn = true;
             ShowBusy(title, busyLine);
             JobResult result = null;
@@ -1044,7 +1050,7 @@ namespace Nash
             await Task.Run(() => { try { result = work(); } catch (Exception ex) { error = ex; } });
             HideBusy();
             busyOn = false;
-            if (error != null) { Toast(error.Message); return; }
+            if (error != null) { Toast(Friendly(error)); return; }
             await Ask(title, result.Reboot ? "Parte disso só vale depois de reiniciar." : "Concluído.", result.Lines, "Fechar", true);
             if (result.Reboot && await Ask("Reiniciar agora?", "O PC reinicia em 15 segundos. Salve o que estiver aberto.", new string[0], "Reiniciar", false))
                 Tweaks.Reboot();
@@ -1054,6 +1060,11 @@ namespace Nash
         async Task<bool> RunQuiet(string title, string busyLine, Func<JobResult> work)
         {
             if (busyOn) return false;
+            if (!Tweaks.IsAdmin())
+            {
+                Toast("O Nash Boost não está como administrador. Feche e abra de novo, e aceite o aviso do Windows.");
+                return false;
+            }
             busyOn = true;
             ShowBusy(title, busyLine);
             Exception error = null;
@@ -1062,10 +1073,20 @@ namespace Nash
             busyOn = false;
             if (error != null)
             {
-                Toast(error.Message);
+                Toast(Friendly(error));
                 return false;
             }
             return true;
+        }
+
+        static string Friendly(Exception error)
+        {
+            var msg = error == null || error.Message == null ? "" : error.Message;
+            if (error is UnauthorizedAccessException || error is System.Security.SecurityException
+                || msg.IndexOf("não autorizada", StringComparison.OrdinalIgnoreCase) >= 0
+                || msg.IndexOf("unauthorized", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "O Windows recusou a operação. Feche o Nash Boost e abra de novo aceitando o pedido de administrador.";
+            return msg;
         }
 
         void ShowBusy(string title, string text)

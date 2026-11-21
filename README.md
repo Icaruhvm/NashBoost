@@ -1,18 +1,22 @@
-﻿# Nash Boost
+# Nash Boost
 
-Otimizador de Windows 10 e 11 para jogos. Reduz atraso de mouse e teclado, segura apps da Microsoft Store em segundo plano e tira gravação do Game Bar, sem limpar RAM e sem desligar antivírus, Windows Update ou a pesquisa.
+Programa de Windows 10 e 11 para quem joga. Muda mouse, teclado, Game Bar e app da Store que fica acordado sem você abrir. A conta fica só neste PC.
+
+Não limpa RAM. Não mexe em antivírus, Windows Update nem na pesquisa.
 
 ## Instalar
 
-Baixe o **NashBoost-Setup.exe** na aba [Releases](https://github.com/Icaruhvm/NashBoost/releases). Não precisa clonar este repositório.
+Baixa o NashBoost-Setup.exe em [Releases](https://github.com/Icaruhvm/NashBoost/releases). Não precisa baixar este repositório.
 
-O instalador baixa só o `NashBoost.exe`, coloca em `C:\Program Files\NashBoost` e cria atalhos no Menu Iniciar e na área de trabalho. O Windows pede administrador porque os ajustes gravam no sistema.
+O instalador pega só o programa, coloca em `C:\Program Files\NashBoost` e cria atalho na área de trabalho e no Menu Iniciar. O Windows pede administrador porque os ajustes gravam no sistema.
 
-A conta fica só neste PC, em `%LOCALAPPDATA%\GamerEdition`. Remover o programa não apaga essa conta.
+A conta fica em `%LOCALAPPDATA%\GamerEdition`. Tirar o programa não apaga essa pasta.
+
+Na primeira abertura nada vem marcado. O botão de 1 clique aplica o pacote recomendado. Nas outras abas, marca o que quiser e clica em aplicar. Na aba Aplicativos, "Marcar instalados" seleciona a lista de uma vez.
 
 ## Compilar
 
-No Windows, a partir desta pasta:
+Nesta pasta, no Windows:
 
 ```
 set FW=C:\Windows\Microsoft.NET\Framework64\v4.0.30319

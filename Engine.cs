@@ -63,6 +63,7 @@ namespace Nash
         static readonly string DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GamerEdition");
         static readonly string LogFile = Path.Combine(DataDir, "log.txt");
         static readonly string StateFile = Path.Combine(DataDir, "lastclean.txt");
+        static int denied;
 
         sealed class AppDef
         {
@@ -230,6 +231,7 @@ namespace Nash
 
         public static JobResult Apply(IList<string> ids, bool restoreFirst)
         {
+            denied = 0;
             var r = new JobResult();
             var set = new HashSet<string>(ids ?? new string[0]);
             if (restoreFirst) RestorePoint(r);
@@ -247,6 +249,7 @@ namespace Nash
             if (set.Contains("memon")) Memory(r, true);
             else if (set.Contains("mem")) Memory(r, false);
             if (set.Contains("edge")) Edge(r);
+            NoteDenied(r);
             return r;
         }
 
@@ -320,16 +323,25 @@ namespace Nash
         static void Hags(JobResult r)
         {
             Dword(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\GraphicsDrivers", "HwSchMode", 2);
-            using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\DirectX\UserGpuPreferences"))
+            try
             {
-                var cur = Convert.ToString(k.GetValue("DirectXUserGlobalSettings")) ?? "";
-                if (cur.IndexOf("SwapEffectUpgradeEnable=", StringComparison.OrdinalIgnoreCase) < 0)
+                using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\DirectX\UserGpuPreferences"))
                 {
-                    if (cur.Length > 0 && !cur.EndsWith(";")) cur += ";";
-                    cur += "SwapEffectUpgradeEnable=1;";
-                    k.SetValue("DirectXUserGlobalSettings", cur, RegistryValueKind.String);
+                    if (k == null) denied++;
+                    else
+                    {
+                        var cur = Convert.ToString(k.GetValue("DirectXUserGlobalSettings")) ?? "";
+                        if (cur.IndexOf("SwapEffectUpgradeEnable=", StringComparison.OrdinalIgnoreCase) < 0)
+                        {
+                            if (cur.Length > 0 && !cur.EndsWith(";")) cur += ";";
+                            cur += "SwapEffectUpgradeEnable=1;";
+                            k.SetValue("DirectXUserGlobalSettings", cur, RegistryValueKind.String);
+                        }
+                    }
                 }
             }
+            catch (UnauthorizedAccessException) { denied++; }
+            catch (System.Security.SecurityException) { denied++; }
             r.Add("Programação de GPU acelerada ligada. Reinicie para concluir.");
             r.Add("Jogos em janela usam o modo de apresentação mais rápido.");
             r.Reboot = true;
@@ -342,13 +354,18 @@ namespace Nash
             var fivem = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"FiveM\FiveM.app");
             if (Directory.Exists(fivem))
             {
-                foreach (var file in Directory.GetFiles(fivem, "FiveM*GTAProcess.exe"))
+                try
                 {
-                    SetPriority(Path.GetFileName(file));
-                    GpuPref(file);
+                    foreach (var file in Directory.GetFiles(fivem, "FiveM*GTAProcess.exe"))
+                    {
+                        SetPriority(Path.GetFileName(file));
+                        GpuPref(file);
+                    }
+                    var main = Path.Combine(fivem, "FiveM.exe");
+                    if (File.Exists(main)) GpuPref(main);
                 }
-                var main = Path.Combine(fivem, "FiveM.exe");
-                if (File.Exists(main)) GpuPref(main);
+                catch (UnauthorizedAccessException) { denied++; }
+                catch (IOException) { }
             }
             var libs = new List<string>();
             CollectSteam(Registry.CurrentUser, @"Software\Valve\Steam", libs);
@@ -359,7 +376,11 @@ namespace Nash
             {
                 var vdf = Path.Combine(root, @"steamapps\libraryfolders.vdf");
                 if (!File.Exists(vdf)) continue;
-                foreach (Match m in Regex.Matches(File.ReadAllText(vdf), "\"path\"\\s+\"([^\"]+)\""))
+                string vdfText;
+                try { vdfText = File.ReadAllText(vdf); }
+                catch (UnauthorizedAccessException) { denied++; continue; }
+                catch (IOException) { continue; }
+                foreach (Match m in Regex.Matches(vdfText, "\"path\"\\s+\"([^\"]+)\""))
                     libs.Add(m.Groups[1].Value.Replace("\\\\", "\\"));
             }
             var foundCs = false;
@@ -375,21 +396,31 @@ namespace Nash
             var cands = new List<string>();
             foreach (var root in new[] { @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" })
             {
-                using (var k = Registry.LocalMachine.OpenSubKey(root))
+                try
                 {
-                    if (k == null) continue;
-                    foreach (var sub in k.GetSubKeyNames())
+                    using (var k = Registry.LocalMachine.OpenSubKey(root))
                     {
-                        using (var item = k.OpenSubKey(sub))
+                        if (k == null) continue;
+                        foreach (var sub in k.GetSubKeyNames())
                         {
-                            if (item == null) continue;
-                            var name = Convert.ToString(item.GetValue("DisplayName"));
-                            var loc = Convert.ToString(item.GetValue("InstallLocation"));
-                            if (!string.IsNullOrEmpty(name) && name.IndexOf("VALORANT", StringComparison.OrdinalIgnoreCase) >= 0 && !string.IsNullOrEmpty(loc))
-                                cands.Add(loc);
+                            try
+                            {
+                                using (var item = k.OpenSubKey(sub))
+                                {
+                                    if (item == null) continue;
+                                    var name = Convert.ToString(item.GetValue("DisplayName"));
+                                    var loc = Convert.ToString(item.GetValue("InstallLocation"));
+                                    if (!string.IsNullOrEmpty(name) && name.IndexOf("VALORANT", StringComparison.OrdinalIgnoreCase) >= 0 && !string.IsNullOrEmpty(loc))
+                                        cands.Add(loc);
+                                }
+                            }
+                            catch (UnauthorizedAccessException) { }
+                            catch (System.Security.SecurityException) { }
                         }
                     }
                 }
+                catch (UnauthorizedAccessException) { }
+                catch (System.Security.SecurityException) { }
             }
             foreach (var d in "CDEFG") cands.Add(d + @":\Riot Games\VALORANT\live");
             foreach (var c in cands)
@@ -524,7 +555,7 @@ namespace Nash
                 Run("sc.exe", "stop " + svc);
                 Run("sc.exe", "config " + svc + " start= disabled");
             }
-            foreach (var svc in new[] { "MapsBroker", "lfsvc", "TrkWks", "WMPNetworkSvc", "diagnosticshub.standardcollector.service", "WerSvc", "XblAuthManager", "XblGameSave", "XboxNetApiSvc", "XboxGipSvc", "DoSvc" })
+            foreach (var svc in new[] { "MapsBroker", "lfsvc", "TrkWks", "WMPNetworkSvc", "diagnosticshub.standardcollector.service", "WerSvc", "DoSvc" })
                 Run("sc.exe", "config " + svc + " start= demand");
             foreach (var task in new[] {
                 @"\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser",
@@ -549,10 +580,7 @@ namespace Nash
             }
             catch { }
             if (build >= 22000)
-            {
-                using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"))
-                    k.SetValue("", "", RegistryValueKind.String);
-            }
+                Sz(Registry.CurrentUser, @"Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32", "", "");
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "HideFileExt", 0);
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "LaunchTo", 1);
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "TaskbarDa", 0);
@@ -565,11 +593,10 @@ namespace Nash
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "TaskbarAnimations", 0);
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\DWM", "EnableAeroPeek", 0);
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize", "StartupDelayInMSec", 0);
-            try
+            foreach (var p in Process.GetProcessesByName("explorer"))
             {
-                foreach (var p in Process.GetProcessesByName("explorer")) p.Kill();
+                try { p.Kill(); } catch { }
             }
-            catch { }
             System.Threading.Thread.Sleep(1500);
             if (Process.GetProcessesByName("explorer").Length == 0)
             {
@@ -583,8 +610,10 @@ namespace Nash
 
         public static JobResult Memory(bool enabled)
         {
+            denied = 0;
             var r = new JobResult();
             Memory(r, enabled);
+            NoteDenied(r);
             return r;
         }
 
@@ -611,8 +640,13 @@ namespace Nash
             var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"Microsoft\Edge\Application");
             if (Directory.Exists(root))
             {
-                foreach (var file in Directory.GetFiles(root, "setup.exe", SearchOption.AllDirectories))
-                    if (file.IndexOf(@"\Installer\setup.exe", StringComparison.OrdinalIgnoreCase) >= 0) setup = file;
+                try
+                {
+                    foreach (var file in Directory.GetFiles(root, "setup.exe", SearchOption.AllDirectories))
+                        if (file.IndexOf(@"\Installer\setup.exe", StringComparison.OrdinalIgnoreCase) >= 0) setup = file;
+                }
+                catch (UnauthorizedAccessException) { }
+                catch (IOException) { }
             }
             if (setup == null) { r.Add("O Edge não saiu nesta versão do Windows. A pasta do programa não foi apagada."); return; }
             var proc = Process.Start(new ProcessStartInfo(setup, "--uninstall --system-level --force-uninstall") { UseShellExecute = false, CreateNoWindow = true });
@@ -656,8 +690,10 @@ namespace Nash
 
         public static JobResult Repair()
         {
+            denied = 0;
             var r = new JobResult();
             Repair(r);
+            NoteDenied(r);
             return r;
         }
 
@@ -729,16 +765,24 @@ namespace Nash
             {
                 var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\Windows\Explorer");
                 if (Directory.Exists(dir))
-                    foreach (var file in Directory.GetFiles(dir, "thumbcache_*.db"))
-                        try { File.Delete(file); } catch { }
+                    try
+                    {
+                        foreach (var file in Directory.GetFiles(dir, "thumbcache_*.db"))
+                            try { File.Delete(file); } catch { }
+                    }
+                    catch { }
                 r.Add("Miniaturas limpas.");
             }
             if (set.Contains("prefetch"))
             {
                 var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch");
                 if (Directory.Exists(dir))
-                    foreach (var file in Directory.GetFiles(dir, "*.pf"))
-                        try { File.Delete(file); } catch { }
+                    try
+                    {
+                        foreach (var file in Directory.GetFiles(dir, "*.pf"))
+                            try { File.Delete(file); } catch { }
+                    }
+                    catch { }
                 r.Add("Prefetch apagado. A próxima abertura pode ser mais lenta.");
             }
             if (set.Contains("valorant"))
@@ -771,9 +815,13 @@ namespace Nash
                     }
                     var cache = Path.Combine(five, @"data\cache");
                     if (Directory.Exists(cache))
-                        foreach (var entry in Directory.GetFileSystemEntries(cache))
-                            if (!string.Equals(Path.GetFileName(entry), "game", StringComparison.OrdinalIgnoreCase))
-                                try { if (Directory.Exists(entry)) Directory.Delete(entry, true); else File.Delete(entry); } catch { }
+                        try
+                        {
+                            foreach (var entry in Directory.GetFileSystemEntries(cache))
+                                if (!string.Equals(Path.GetFileName(entry), "game", StringComparison.OrdinalIgnoreCase))
+                                    try { if (Directory.Exists(entry)) Directory.Delete(entry, true); else File.Delete(entry); } catch { }
+                        }
+                        catch { }
                     Wipe(Path.Combine(five, "logs"), null);
                     r.Add("Cache do FiveM reparado.");
                 }
@@ -845,6 +893,7 @@ namespace Nash
 
         public static JobResult RemoveApps(IList<string> ids, bool onedrive)
         {
+            denied = 0;
             var r = new JobResult();
             var chosen = Catalog.Where(a => ids != null && ids.Contains(a.Id)).ToList();
             if (chosen.Count > 0)
@@ -882,6 +931,7 @@ namespace Nash
                 catch { }
                 r.Add("OneDrive removido. Arquivos que já estavam na pasta foram mantidos.");
             }
+            NoteDenied(r);
             if (r.Lines.Count == 0) r.Add("Nada foi marcado.");
             return r;
         }
@@ -926,8 +976,22 @@ namespace Nash
             }
             var bytes = new byte[12];
             bytes[0] = (byte)(enabled ? 2 : 3);
-            using (var k = approvedHive.CreateSubKey(approvedPath))
-                k.SetValue(name, bytes, RegistryValueKind.Binary);
+            try
+            {
+                using (var k = approvedHive.CreateSubKey(approvedPath))
+                {
+                    if (k == null) return "O Windows recusou gravar este item.";
+                    k.SetValue(name, bytes, RegistryValueKind.Binary);
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return "O Windows recusou gravar este item. Feche o Nash Boost e abra de novo aceitando o pedido de administrador.";
+            }
+            catch (System.Security.SecurityException)
+            {
+                return "O Windows recusou gravar este item. Feche o Nash Boost e abra de novo aceitando o pedido de administrador.";
+            }
             return null;
         }
 
@@ -1080,28 +1144,61 @@ namespace Nash
 
         static bool GpuPref(string path)
         {
-            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
-            using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\DirectX\UserGpuPreferences"))
-                k.SetValue(path, "GpuPreference=2;", RegistryValueKind.String);
+            if (string.IsNullOrEmpty(path)) return false;
+            try
+            {
+                if (!File.Exists(path)) return false;
+                using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\DirectX\UserGpuPreferences"))
+                {
+                    if (k == null) { denied++; return false; }
+                    k.SetValue(path, "GpuPreference=2;", RegistryValueKind.String);
+                }
+            }
+            catch (UnauthorizedAccessException) { denied++; return false; }
+            catch (System.Security.SecurityException) { denied++; return false; }
+            catch (IOException) { return false; }
+            catch (ArgumentException) { return false; }
             return true;
         }
 
         static void Dword(RegistryKey hive, string sub, string name, int value)
         {
-            using (var k = hive.CreateSubKey(sub))
-                if (k != null) k.SetValue(name, value, RegistryValueKind.DWord);
+            try
+            {
+                using (var k = hive.CreateSubKey(sub))
+                    if (k != null) k.SetValue(name, value, RegistryValueKind.DWord);
+            }
+            catch (UnauthorizedAccessException) { denied++; }
+            catch (System.Security.SecurityException) { denied++; }
         }
 
         static void Sz(RegistryKey hive, string sub, string name, string value)
         {
-            using (var k = hive.CreateSubKey(sub))
-                if (k != null) k.SetValue(name, value ?? "", RegistryValueKind.String);
+            try
+            {
+                using (var k = hive.CreateSubKey(sub))
+                    if (k != null) k.SetValue(name, value ?? "", RegistryValueKind.String);
+            }
+            catch (UnauthorizedAccessException) { denied++; }
+            catch (System.Security.SecurityException) { denied++; }
+        }
+
+        static void NoteDenied(JobResult r)
+        {
+            if (denied <= 0) return;
+            if (!IsAdmin())
+                r.Add("O Windows recusou parte das gravações. Feche o Nash Boost e abra de novo aceitando o pedido de administrador.");
+            else
+                r.Add("Uma parte não foi gravada porque o Windows recusou a chave. O restante entrou.");
         }
 
         static void Wipe(string dir, string skip)
         {
             if (!Directory.Exists(dir)) return;
-            foreach (var entry in Directory.GetFileSystemEntries(dir))
+            string[] entries;
+            try { entries = Directory.GetFileSystemEntries(dir); }
+            catch { return; }
+            foreach (var entry in entries)
             {
                 if (skip != null && string.Equals(Path.GetFileName(entry), skip, StringComparison.OrdinalIgnoreCase)) continue;
                 try
