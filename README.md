@@ -1,5 +1,7 @@
 # Nash Boost
 
+Versão de testes. O aplicativo ainda não está pronto. O que tem aqui pode mudar, e algum ajuste pode não ficar bom no seu PC. Se for testar, cria o ponto de restauração antes.
+
 Programa de Windows 10 e 11 para quem joga. Muda mouse, teclado, Game Bar e app da Store que fica acordado sem você abrir. A conta fica só neste PC.
 
 Não limpa RAM. Não mexe em antivírus, Windows Update nem na pesquisa.

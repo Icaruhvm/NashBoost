@@ -524,7 +524,8 @@ namespace Nash
             };
             foot.Children.Add(who);
             foot.Children.Add(logout);
-            foot.Children.Add(Text("v2.0.1", 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 8, 0, 0)));
+            foot.Children.Add(Text("v2.0.2", 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 8, 0, 0)));
+            foot.Children.Add(Text("versão de testes", 12, Palette.Warn, FontWeights.Normal, new Thickness(0, 2, 0, 0)));
             DockPanel.SetDock(foot, Dock.Bottom);
             var menu = new StackPanel { Margin = new Thickness(8, 0, 8, 0) };
             foreach (var item in new[] {
@@ -604,6 +605,7 @@ namespace Nash
             var root = new StackPanel();
             hello = Text("Veja o estado do PC e aplique o pacote recomendado.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 16));
             root.Children.Add(Text("Início", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            root.Children.Add(Text("Versão de testes. O programa ainda não está pronto.", 13, Palette.Warn, FontWeights.Normal, new Thickness(0, 4, 0, 0)));
             root.Children.Add(hello);
             var stats = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 16) };
             winText = Stat(stats, "Windows");
@@ -658,9 +660,9 @@ namespace Nash
             root.Children.Add(meters);
             var card = Card();
             var list = new StackPanel();
-            list.Children.Add(Row("Aceleração do mouse", "Desliga a aceleração. O ponteiro fica na marca padrão, sem acelerar.", game, "mouse", false, null));
+            list.Children.Add(Row("Aceleração do mouse", "Desliga a aceleração e deixa a curva reta na escala desta tela. O ponteiro vai para a marca do meio.", game, "mouse", false, null));
             list.Children.Add(Row("Teclado imediato", "Atraso inicial em zero e sem o aviso de Sticky Keys.", game, "keyboard", false, null));
-            list.Children.Add(Row("USB acordado na tomada", "Mouse e teclado não dormem no meio do uso.", game, "network", false, null));
+            list.Children.Add(Row("USB acordado na tomada", "Mouse e teclado não dormem. Na rede com fio, a placa deixa de economizar energia.", game, "network", false, null));
             list.Children.Add(Row("Gravação do Game Bar", "Para a captura em segundo plano e deixa o Modo de Jogo ligado.", game, "gamedvr", false, null));
             list.Children.Add(Row("GPU acelerada", "Menos latência em placa compatível. Vale depois de reiniciar.", game, "hags", false, null));
             list.Children.Add(Row("Prioridade do CS2 e do FiveM", "Um nível acima do normal, e a GPU dedicada quando o notebook tem duas.", game, "games", false, null));
@@ -693,7 +695,7 @@ namespace Nash
             var card = Card();
             var list = new StackPanel();
             list.Children.Add(Row("Energia para jogos", "Plano equilibrado no modo Melhor desempenho. A CPU não fica presa em 100%.", system, "power", false, null));
-            list.Children.Add(Row("Apps em segundo plano", "Apps da Microsoft Store deixam de ficar acordados. Steam, Discord e o que você abre continuam normais.", system, "background", false, null));
+            list.Children.Add(Row("Apps em segundo plano", "Apps da Store não ficam acordados, e os serviços do Windows se agrupam em menos processos. Steam, Discord e o que você abre continuam normais.", system, "background", false, null));
             list.Children.Add(Row("Telemetria e anúncios", "Desliga coleta de diagnóstico, sugestões, o Copilot e o download de atualizações de outros PCs. A atualização continua.", system, "telemetry", false, null));
             list.Children.Add(Row("Interface mais leve", "Menos animação e transparência. No Windows 11, o menu do botão direito volta ao formato clássico.", system, "ui", false, null));
             card.Child = list;

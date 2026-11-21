@@ -279,8 +279,69 @@ namespace Nash
             Sz(Registry.CurrentUser, @"Control Panel\Mouse", "MouseSpeed", "0");
             Sz(Registry.CurrentUser, @"Control Panel\Mouse", "MouseThreshold1", "0");
             Sz(Registry.CurrentUser, @"Control Panel\Mouse", "MouseThreshold2", "0");
-            try { Native.SetMouse(4, 0, new[] { 0, 0, 0 }, 2); } catch { }
-            r.Add("Aceleração do mouse desligada. O ponteiro fica na marca padrão, 1:1.");
+            Sz(Registry.CurrentUser, @"Control Panel\Mouse", "MouseSensitivity", "10");
+            Sz(Registry.CurrentUser, @"Control Panel\Mouse", "MouseTrails", "0");
+            Sz(Registry.CurrentUser, @"Control Panel\Mouse", "SnapToDefaultButton", "0");
+            var dpi = DisplayDpi();
+            var percent = dpi * 100 / 96;
+            var curve = CurveX(dpi);
+            if (curve != null)
+            {
+                Binary(Registry.CurrentUser, @"Control Panel\Mouse", "SmoothMouseXCurve", curve);
+                Binary(Registry.CurrentUser, @"Control Panel\Mouse", "SmoothMouseYCurve", CurveY());
+                r.Add("Aceleração desligada e curva reta aplicada na escala de " + percent + "%. O ponteiro fica na marca do meio. Saia da conta para a curva valer por completo.");
+            }
+            else r.Add("Aceleração desligada. A escala de " + percent + "% não está na tabela, então a curva do Windows ficou como está. O ponteiro fica na marca do meio.");
+            try
+            {
+                Native.SetMouse(4, 0, new[] { 0, 0, 0 }, 2);
+                Native.SetParam(0x71, 10, IntPtr.Zero, 2);
+            }
+            catch { }
+        }
+
+        static int DisplayDpi()
+        {
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop\WindowMetrics"))
+                    if (k != null && k.GetValue("AppliedDPI") != null) return Convert.ToInt32(k.GetValue("AppliedDPI"));
+            }
+            catch { }
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop"))
+                    if (k != null && k.GetValue("LogPixels") != null) return Convert.ToInt32(k.GetValue("LogPixels"));
+            }
+            catch { }
+            return 96;
+        }
+
+        static byte[] CurveY()
+        {
+            return Hex("0000000000000000000038000000000000007000000000000000A800000000000000E00000000000");
+        }
+
+        static byte[] CurveX(int dpi)
+        {
+            if (dpi == 96) return Hex("0000000000000000C0CC0C0000000000809919000000000040662600000000000033330000000000");
+            if (dpi == 120) return Hex("00000000000000000000100000000000000020000000000000003000000000000000400000000000");
+            if (dpi == 144) return Hex("0000000000000000303313000000000060662600000000009099390000000000C0CC4C0000000000");
+            if (dpi == 168) return Hex("00000000000000006066160000000000C0CC2C000000000020334300000000008099590000000000");
+            if (dpi == 192) return Hex("000000000000000090991900000000002033330000000000B0CC4C00000000004066660000000000");
+            if (dpi == 216) return Hex("0000000000000000C0CC1C0000000000809939000000000040665600000000000033730000000000");
+            if (dpi == 240) return Hex("00000000000000000000200000000000000040000000000000006000000000000000800000000000");
+            if (dpi == 288) return Hex("00000000000000006066260000000000C0CC4C000000000020337300000000008099990000000000");
+            if (dpi == 336) return Hex("0000000000000000C0CC2C0000000000809959000000000040668600000000000033B30000000000");
+            return null;
+        }
+
+        static byte[] Hex(string text)
+        {
+            var n = text.Length / 2;
+            var bytes = new byte[n];
+            for (var i = 0; i < n; i++) bytes[i] = Convert.ToByte(text.Substring(i * 2, 2), 16);
+            return bytes;
         }
 
         static void Keyboard(JobResult r)
@@ -289,6 +350,9 @@ namespace Nash
             Sz(Registry.CurrentUser, @"Control Panel\Keyboard", "KeyboardSpeed", "31");
             Sz(Registry.CurrentUser, @"Control Panel\Accessibility\StickyKeys", "Flags", "506");
             Sz(Registry.CurrentUser, @"Control Panel\Accessibility\Keyboard Response", "Flags", "122");
+            Sz(Registry.CurrentUser, @"Control Panel\Accessibility\Keyboard Response", "DelayBeforeAcceptance", "0");
+            Sz(Registry.CurrentUser, @"Control Panel\Accessibility\Keyboard Response", "AutoRepeatDelay", "0");
+            Sz(Registry.CurrentUser, @"Control Panel\Accessibility\Keyboard Response", "AutoRepeatRate", "0");
             Sz(Registry.CurrentUser, @"Control Panel\Accessibility\ToggleKeys", "Flags", "58");
             try
             {
@@ -317,7 +381,11 @@ namespace Nash
             Dword(Registry.LocalMachine, games, "Priority", 6);
             Sz(Registry.LocalMachine, games, "Scheduling Category", "High");
             Sz(Registry.LocalMachine, games, "SFIO Priority", "High");
+            Sz(Registry.LocalMachine, games, "Background Only", "False");
+            Dword(Registry.LocalMachine, games, "Clock Rate", 10000);
+            Dword(Registry.LocalMachine, games, "Affinity", 0);
             r.Add("Gravação do Game Bar desligada e Modo de Jogo ligado.");
+            r.Add("Perfil de mídia dos jogos em prioridade alta.");
         }
 
         static void Hags(JobResult r)
@@ -506,12 +574,12 @@ namespace Nash
 
         static void Network(JobResult r)
         {
-            RunPowerShell("Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.MediaType -eq '802.3' } | ForEach-Object { Disable-NetAdapterPowerManagement -Name $_.Name -ErrorAction SilentlyContinue }");
+            RunPowerShell("Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.MediaType -eq '802.3' } | ForEach-Object { Disable-NetAdapterPowerManagement -Name $_.Name -ErrorAction SilentlyContinue; Set-NetAdapterAdvancedProperty -Name $_.Name -RegistryKeyword '*EEE' -RegistryValue '0' -ErrorAction SilentlyContinue }");
             Run("powercfg.exe", "/setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0");
             Run("powercfg.exe", "/setdcvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0");
             Run("powercfg.exe", "/setactive SCHEME_CURRENT");
             if (!UsbSuspendOff()) r.Add("Não foi possível confirmar a suspensão do USB.");
-            r.Add("USB e rede com fio sem economia de energia na tomada.");
+            r.Add("USB sem suspensão. Na rede com fio, a economia de energia da placa fica desligada. A rede pode piscar uma vez.");
         }
 
         static void Background(JobResult r)
@@ -519,6 +587,28 @@ namespace Nash
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications", "GlobalUserDisabled", 1);
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Search", "BackgroundAppGlobalToggle", 0);
             r.Add("Apps da Microsoft Store não ficam mais acordados. Steam, Discord e o que você abre continuam normais.");
+            long bytes = 0;
+            try
+            {
+                using (var q = new ManagementObjectSearcher("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem"))
+                foreach (ManagementObject o in q.Get())
+                {
+                    bytes = Convert.ToInt64(o["TotalPhysicalMemory"]);
+                    break;
+                }
+            }
+            catch { }
+            var kb = bytes / 1024L;
+            if (kb >= 1048576L && kb <= int.MaxValue)
+            {
+                var before = denied;
+                Dword(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control", "SvcHostSplitThresholdInKB", (int)kb);
+                if (denied == before)
+                {
+                    r.Add("Serviços do Windows agrupados em menos processos. Vale depois de reiniciar.");
+                    r.Reboot = true;
+                }
+            }
         }
 
         static void Mpo(JobResult r)
@@ -1178,6 +1268,17 @@ namespace Nash
             {
                 using (var k = hive.CreateSubKey(sub))
                     if (k != null) k.SetValue(name, value ?? "", RegistryValueKind.String);
+            }
+            catch (UnauthorizedAccessException) { denied++; }
+            catch (System.Security.SecurityException) { denied++; }
+        }
+
+        static void Binary(RegistryKey hive, string sub, string name, byte[] value)
+        {
+            try
+            {
+                using (var k = hive.CreateSubKey(sub))
+                    if (k != null) k.SetValue(name, value, RegistryValueKind.Binary);
             }
             catch (UnauthorizedAccessException) { denied++; }
             catch (System.Security.SecurityException) { denied++; }
