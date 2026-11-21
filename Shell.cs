@@ -1,0 +1,1496 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media.Imaging;
+using System.Windows.Shell;
+
+namespace Nash
+{
+    public static class AppEntry
+    {
+        [STAThread]
+        public static void Main()
+        {
+            var app = new Application();
+            app.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            app.Run(new Shell());
+        }
+    }
+
+    static class Palette
+    {
+        public static SolidColorBrush Make(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
+        }
+        public static readonly SolidColorBrush Bg = Make(0x0c, 0x0e, 0x12);
+        public static readonly SolidColorBrush Side = Make(0x10, 0x13, 0x18);
+        public static readonly SolidColorBrush Card = Make(0x16, 0x1a, 0x21);
+        public static readonly SolidColorBrush Card2 = Make(0x1d, 0x23, 0x2c);
+        public static readonly SolidColorBrush Line = Make(0x2c, 0x34, 0x42);
+        public static readonly SolidColorBrush Text = Make(0xe8, 0xea, 0xed);
+        public static readonly SolidColorBrush Muted = Make(0x9a, 0xa3, 0xb2);
+        public static readonly SolidColorBrush Mint = Make(0x3d, 0xcc, 0x97);
+        public static readonly SolidColorBrush Ink = Make(0x06, 0x21, 0x17);
+        public static readonly SolidColorBrush WarnBg = Make(0x3a, 0x32, 0x1c);
+        public static readonly SolidColorBrush Warn = Make(0xe2, 0xc0, 0x7a);
+        public static readonly SolidColorBrush Danger = Make(0xe5, 0x8b, 0x96);
+        public static readonly SolidColorBrush Field = Make(0x0e, 0x12, 0x18);
+    }
+
+    sealed class SwitchBox : Border
+    {
+        readonly System.Windows.Shapes.Ellipse knob = new System.Windows.Shapes.Ellipse { Width = 22, Height = 22, Fill = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+        public bool IsOn { get; private set; }
+        public SwitchBox(bool on)
+        {
+            Width = 46;
+            Height = 28;
+            CornerRadius = new CornerRadius(14);
+            Cursor = Cursors.Hand;
+            Child = knob;
+            SetOn(on);
+            MouseLeftButtonUp += delegate
+            {
+                if (!IsEnabled) return;
+                SetOn(!IsOn);
+            };
+        }
+        public void SetOn(bool on)
+        {
+            IsOn = on;
+            Background = on ? Palette.Mint : Palette.Card2;
+            knob.Margin = new Thickness(on ? 21 : 3, 0, 0, 0);
+            Opacity = IsEnabled ? 1 : 0.45;
+        }
+    }
+
+    sealed class PageScroll : Grid
+    {
+        readonly ScrollViewer viewer;
+        readonly Grid rail;
+        readonly Border thumb;
+        bool drag;
+        bool over;
+        double dragY;
+        double dragOffset;
+        int layoutTries;
+
+        public PageScroll(Thickness padding, Brush background)
+        {
+            Background = background;
+            viewer = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = padding,
+                Background = background,
+                CanContentScroll = false,
+                PanningMode = PanningMode.VerticalOnly
+            };
+            Children.Add(viewer);
+            rail = new Grid
+            {
+                Width = 18,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Margin = new Thickness(0, 16, 8, 16),
+                Background = Brushes.Transparent,
+                Visibility = Visibility.Collapsed
+            };
+            thumb = new Border
+            {
+                Width = 8,
+                Height = 48,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Background = Palette.Make(0x5c, 0x6b, 0x80),
+                CornerRadius = new CornerRadius(4),
+                Cursor = Cursors.Hand
+            };
+            rail.Children.Add(thumb);
+            Children.Add(rail);
+            viewer.ScrollChanged += delegate { LayoutThumb(); };
+            SizeChanged += delegate { layoutTries = 0; LayoutThumb(); };
+            thumb.MouseEnter += delegate { over = true; thumb.Background = Palette.Mint; };
+            thumb.MouseLeave += delegate { over = false; if (!drag) thumb.Background = Palette.Make(0x5c, 0x6b, 0x80); };
+            thumb.MouseLeftButtonDown += OnThumbDown;
+            thumb.MouseMove += OnThumbMove;
+            thumb.MouseLeftButtonUp += OnThumbUp;
+            thumb.LostMouseCapture += delegate { drag = false; if (!over) thumb.Background = Palette.Make(0x5c, 0x6b, 0x80); };
+            rail.MouseLeftButtonDown += OnRailDown;
+            rail.PreviewMouseWheel += OnWheel;
+        }
+
+        public object Content
+        {
+            get { return viewer.Content; }
+            set { viewer.Content = value; viewer.ScrollToVerticalOffset(0); }
+        }
+
+        public void Cap(double height)
+        {
+            MaxHeight = height;
+            viewer.MaxHeight = height;
+        }
+
+        void OnWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (e.Delta > 0) viewer.LineUp();
+            else viewer.LineDown();
+            e.Handled = true;
+        }
+
+        void OnThumbDown(object sender, MouseButtonEventArgs e)
+        {
+            drag = true;
+            dragY = e.GetPosition(rail).Y;
+            dragOffset = viewer.VerticalOffset;
+            thumb.CaptureMouse();
+            thumb.Background = Palette.Mint;
+            e.Handled = true;
+        }
+
+        void OnThumbMove(object sender, MouseEventArgs e)
+        {
+            if (!drag) return;
+            var travel = rail.ActualHeight - thumb.Height;
+            if (travel < 1) return;
+            var dy = e.GetPosition(rail).Y - dragY;
+            viewer.ScrollToVerticalOffset(dragOffset + (dy / travel) * viewer.ScrollableHeight);
+        }
+
+        void OnThumbUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!drag) return;
+            drag = false;
+            thumb.ReleaseMouseCapture();
+            if (!over) thumb.Background = Palette.Make(0x5c, 0x6b, 0x80);
+        }
+
+        void OnRailDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource == thumb) return;
+            var y = e.GetPosition(rail).Y;
+            if (y < thumb.Margin.Top) viewer.PageUp();
+            else if (y > thumb.Margin.Top + thumb.Height) viewer.PageDown();
+            e.Handled = true;
+        }
+
+        void LayoutThumb()
+        {
+            var extent = viewer.ExtentHeight;
+            var viewport = viewer.ViewportHeight;
+            var scrollable = viewer.ScrollableHeight;
+            if (scrollable <= 1 || viewport < 1 || extent < 1)
+            {
+                rail.Visibility = Visibility.Collapsed;
+                layoutTries = 0;
+                return;
+            }
+            rail.Visibility = Visibility.Visible;
+            var trackH = rail.ActualHeight;
+            if (trackH < 8)
+            {
+                if (layoutTries >= 6) return;
+                layoutTries++;
+                Dispatcher.BeginInvoke(new Action(LayoutThumb), System.Windows.Threading.DispatcherPriority.Loaded);
+                return;
+            }
+            layoutTries = 0;
+            var thumbH = trackH * (viewport / extent);
+            if (thumbH < 42) thumbH = 42;
+            if (thumbH > trackH - 4) thumbH = trackH - 4;
+            var travel = trackH - thumbH;
+            var y = scrollable <= 0 ? 0 : travel * (viewer.VerticalOffset / scrollable);
+            if (y < 0) y = 0;
+            if (y > travel) y = travel;
+            if (Math.Abs(thumb.Height - thumbH) > 0.5) thumb.Height = thumbH;
+            if (Math.Abs(thumb.Margin.Top - y) > 0.5) thumb.Margin = new Thickness(0, y, 0, 0);
+        }
+    }
+
+    sealed class Shell : Window
+    {
+        readonly Dictionary<string, Button> nav = new Dictionary<string, Button>();
+        readonly Dictionary<string, UIElement> pages = new Dictionary<string, UIElement>();
+        readonly Dictionary<string, SwitchBox> game = new Dictionary<string, SwitchBox>();
+        readonly Dictionary<string, SwitchBox> system = new Dictionary<string, SwitchBox>();
+        readonly Dictionary<string, SwitchBox> clean = new Dictionary<string, SwitchBox>();
+        readonly List<AppPick> picks = new List<AppPick>();
+        Grid login;
+        Grid app;
+        Grid busy;
+        Grid modal;
+        TextBlock busyTitle;
+        TextBlock busyText;
+        TextBlock modalTitle;
+        TextBlock modalText;
+        StackPanel modalList;
+        Button modalOk;
+        Button modalCancel;
+        TaskCompletionSource<bool> modalWait;
+        StackPanel toasts;
+        TextBlock who;
+        string user = "";
+        bool busyOn;
+        TextBlock winText;
+        TextBlock ramText;
+        TextBlock gpuText;
+        TextBlock cpuText;
+        TextBlock hello;
+        TextBlock lastClean;
+        StackPanel flags;
+        TextBlock jogoMouse;
+        TextBlock jogoKey;
+        TextBlock jogoUsb;
+        TextBlock jogoMem;
+        StackPanel installedHost;
+        StackPanel startupHost;
+        StackPanel catalogHost;
+        TextBlock appSummary;
+        SwitchBox onedrive;
+        bool appsReady;
+        ColumnDefinition captionCol;
+        TextBlock maxGlyph;
+        Border frame;
+
+        public Shell()
+        {
+            Title = "Nash Boost";
+            Width = 1180;
+            Height = 760;
+            MinWidth = 1020;
+            MinHeight = 680;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.CanResize;
+            Background = Palette.Bg;
+            FontFamily = new FontFamily("Segoe UI");
+            Foreground = Palette.Text;
+            UseLayoutRounding = true;
+            SnapsToDevicePixels = true;
+            var chrome = new WindowChrome
+            {
+                CaptionHeight = 40,
+                ResizeBorderThickness = new Thickness(6),
+                GlassFrameThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(0),
+                UseAeroCaptionButtons = false
+            };
+            WindowChrome.SetWindowChrome(this, chrome);
+            try
+            {
+                var ico = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "nash.ico");
+                if (File.Exists(ico)) Icon = BitmapFrame.Create(new Uri(ico));
+            }
+            catch { }
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var caption = BuildCaption();
+            Grid.SetRow(caption, 0);
+            var body = new Grid();
+            Grid.SetRow(body, 1);
+            login = BuildLogin();
+            app = BuildApp();
+            app.Visibility = Visibility.Collapsed;
+            busy = BuildBusy();
+            modal = BuildModal();
+            toasts = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(18) };
+            body.Children.Add(login);
+            body.Children.Add(app);
+            root.Children.Add(caption);
+            root.Children.Add(body);
+            root.Children.Add(busy);
+            root.Children.Add(modal);
+            root.Children.Add(toasts);
+            Grid.SetRowSpan(busy, 2);
+            Grid.SetRowSpan(modal, 2);
+            Grid.SetRowSpan(toasts, 2);
+            frame = new Border { Background = Palette.Bg, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Child = root };
+            Content = frame;
+            KeyDown += OnKey;
+            StateChanged += delegate { UpdateChrome(); };
+            SourceInitialized += OnSourceInitialized;
+            Accounts.Ensure();
+            UpdateChrome();
+        }
+
+        Image Logo(double size)
+        {
+            var image = new Image { Width = size, Height = size, Stretch = Stretch.Uniform };
+            try
+            {
+                var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Nash.logo.png");
+                if (stream == null)
+                {
+                    var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logo.png");
+                    if (File.Exists(path)) stream = File.OpenRead(path);
+                }
+                if (stream != null)
+                {
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.StreamSource = stream;
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    image.Source = bmp;
+                }
+            }
+            catch { }
+            return image;
+        }
+
+        Grid BuildLogin()
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.85, GridUnitType.Star) });
+            var hero = new StackPanel { Margin = new Thickness(56, 48, 32, 48), VerticalAlignment = VerticalAlignment.Center };
+            var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 22) };
+            brand.Children.Add(Logo(52));
+            brand.Children.Add(Text("Nash Boost", 20, Palette.Text, FontWeights.SemiBold, new Thickness(12, 12, 0, 0)));
+            hero.Children.Add(brand);
+            hero.Children.Add(Text("O Windows mais leve, com o que dá para medir.", 32, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 12)));
+            hero.Children.Add(Text("Um clique para o pacote recomendado, ou cada ajuste na própria área. A conta fica só neste computador.", 15, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 16)));
+            foreach (var line in new[] { "Mouse 1:1, teclado imediato e USB acordado.", "Limpeza de arquivos separada da otimização.", "Antivírus, Windows Update e a busca continuam ligados." })
+                hero.Children.Add(Text("●  " + line, 14, Palette.Text, FontWeights.Normal, new Thickness(0, 4, 0, 0)));
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Margin = new Thickness(12, 36, 36, 36), Padding = new Thickness(28) };
+            var form = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var seg = new Grid { Margin = new Thickness(0, 0, 0, 16) };
+            seg.ColumnDefinitions.Add(new ColumnDefinition());
+            seg.ColumnDefinitions.Add(new ColumnDefinition());
+            var tabLogin = Button("Entrar", true);
+            var tabRegister = Button("Criar conta", false);
+            var modeRegister = false;
+            var title = Text("Entrar neste PC", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 6));
+            var hint = Text("A conta fica só neste computador.", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 14));
+            var name = Box();
+            var pass = new PasswordBox { Height = 40, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, Padding = new Thickness(10, 8, 70, 8), FontSize = 14, CaretBrush = Palette.Text };
+            var passShown = Box();
+            passShown.Visibility = Visibility.Collapsed;
+            var passHost = new Grid();
+            passHost.Children.Add(pass);
+            passHost.Children.Add(passShown);
+            var show = Button("Mostrar", false);
+            show.Height = 28;
+            show.Padding = new Thickness(8, 0, 8, 0);
+            show.HorizontalAlignment = HorizontalAlignment.Right;
+            show.VerticalAlignment = VerticalAlignment.Center;
+            show.Margin = new Thickness(0, 0, 6, 0);
+            show.Click += delegate
+            {
+                if (pass.Visibility == Visibility.Visible)
+                {
+                    passShown.Text = pass.Password;
+                    pass.Visibility = Visibility.Collapsed;
+                    passShown.Visibility = Visibility.Visible;
+                    show.Content = "Ocultar";
+                }
+                else
+                {
+                    pass.Password = passShown.Text;
+                    passShown.Visibility = Visibility.Collapsed;
+                    pass.Visibility = Visibility.Visible;
+                    show.Content = "Mostrar";
+                }
+            };
+            passHost.Children.Add(show);
+            var remember = Button("Lembrar usuário e senha", false);
+            remember.HorizontalAlignment = HorizontalAlignment.Left;
+            remember.Margin = new Thickness(0, 8, 0, 8);
+            var remembered = false;
+            Action paintRemember = delegate
+            {
+                remember.Background = remembered ? Palette.Mint : Brushes.Transparent;
+                remember.Foreground = remembered ? Palette.Ink : Palette.Text;
+                remember.BorderBrush = remembered ? Palette.Mint : Palette.Line;
+                remember.BorderThickness = new Thickness(1);
+            };
+            paintRemember();
+            remember.Click += delegate { remembered = !remembered; paintRemember(); };
+            var error = Text("", 13, Palette.Danger, FontWeights.Normal, new Thickness(0, 4, 0, 8));
+            var submit = Button("Entrar", true);
+            submit.Height = 42;
+            Action<bool> setMode = delegate(bool register)
+            {
+                modeRegister = register;
+                tabLogin.Background = register ? Brushes.Transparent : Palette.Card2;
+                tabLogin.Foreground = register ? Palette.Muted : Palette.Text;
+                tabRegister.Background = register ? Palette.Card2 : Brushes.Transparent;
+                tabRegister.Foreground = register ? Palette.Text : Palette.Muted;
+                title.Text = register ? "Criar conta neste PC" : "Entrar neste PC";
+                hint.Text = register ? "Use de 3 a 20 letras ou números e uma senha com pelo menos 6 caracteres." : "A conta fica só neste computador.";
+                submit.Content = register ? "Criar conta" : "Entrar";
+                error.Text = "";
+            };
+            tabLogin.Click += delegate { setMode(false); };
+            tabRegister.Click += delegate { setMode(true); };
+            Func<string> currentPass = delegate { return pass.Visibility == Visibility.Visible ? pass.Password : passShown.Text; };
+            Action doSubmit = async delegate
+            {
+                error.Text = "";
+                submit.IsEnabled = false;
+                var typedName = name.Text;
+                var typedPass = currentPass();
+                string fail = null;
+                try
+                {
+                    await Task.Run(delegate { fail = modeRegister ? Accounts.Register(typedName, typedPass) : Accounts.Login(typedName, typedPass); });
+                }
+                catch (Exception ex)
+                {
+                    fail = ex.Message;
+                }
+                submit.IsEnabled = true;
+                if (fail != null) { error.Text = fail; return; }
+                var saved = typedName.Trim().ToLowerInvariant();
+                if (remembered) Accounts.Remember(saved, typedPass);
+                else Accounts.Forget();
+                Enter(saved);
+            };
+            submit.Click += delegate { doSubmit(); };
+            name.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) doSubmit(); };
+            pass.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) doSubmit(); };
+            passShown.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) doSubmit(); };
+            string recalledUser;
+            string recalledPass;
+            if (Accounts.TryRecall(out recalledUser, out recalledPass))
+            {
+                name.Text = recalledUser;
+                pass.Password = recalledPass;
+                remembered = true;
+                paintRemember();
+            }
+            form.Children.Add(seg);
+            Grid.SetColumn(tabLogin, 0);
+            Grid.SetColumn(tabRegister, 1);
+            seg.Children.Add(tabLogin);
+            seg.Children.Add(tabRegister);
+            form.Children.Add(title);
+            form.Children.Add(hint);
+            form.Children.Add(Label("Nome"));
+            form.Children.Add(name);
+            form.Children.Add(Label("Senha"));
+            form.Children.Add(passHost);
+            form.Children.Add(remember);
+            form.Children.Add(error);
+            form.Children.Add(submit);
+            card.Child = form;
+            Grid.SetColumn(card, 1);
+            grid.Children.Add(hero);
+            grid.Children.Add(card);
+            setMode(false);
+            return grid;
+        }
+
+        Grid BuildApp()
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(248) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            var side = new DockPanel { Background = Palette.Side };
+            var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(18, 20, 12, 16) };
+            brand.Children.Add(Logo(36));
+            var names = new StackPanel { Margin = new Thickness(10, 2, 0, 0) };
+            names.Children.Add(Text("Nash Boost", 16, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            names.Children.Add(Text("Windows 10 e 11", 12, Palette.Muted, FontWeights.Normal, new Thickness(0)));
+            brand.Children.Add(names);
+            DockPanel.SetDock(brand, Dock.Top);
+            var foot = new StackPanel { Margin = new Thickness(18, 8, 12, 16) };
+            who = Text("", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 4));
+            var logout = Button("Sair", false);
+            logout.HorizontalAlignment = HorizontalAlignment.Left;
+            logout.Click += delegate
+            {
+                user = "";
+                app.Visibility = Visibility.Collapsed;
+                login.Visibility = Visibility.Visible;
+                SetChrome(false);
+            };
+            foot.Children.Add(who);
+            foot.Children.Add(logout);
+            foot.Children.Add(Text("v2.0", 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 8, 0, 0)));
+            DockPanel.SetDock(foot, Dock.Bottom);
+            var menu = new StackPanel { Margin = new Thickness(8, 0, 8, 0) };
+            foreach (var item in new[] {
+                new[] { "home", "Início" },
+                new[] { "jogo", "Jogo" },
+                new[] { "sistema", "Sistema" },
+                new[] { "limpeza", "Limpeza" },
+                new[] { "apps", "Aplicativos" },
+                new[] { "reparar", "Reparar" },
+                new[] { "conta", "Conta" } })
+            {
+                var b = Button(item[1], false);
+                b.HorizontalContentAlignment = HorizontalAlignment.Left;
+                b.Background = Brushes.Transparent;
+                b.BorderThickness = new Thickness(3, 0, 0, 0);
+                b.BorderBrush = Brushes.Transparent;
+                b.Foreground = Palette.Muted;
+                b.Height = 40;
+                b.Margin = new Thickness(0, 1, 0, 1);
+                var page = item[0];
+                b.Click += delegate { Navigate(page); };
+                nav[page] = b;
+                menu.Children.Add(b);
+            }
+            side.Children.Add(brand);
+            side.Children.Add(foot);
+            side.Children.Add(menu);
+            var host = new PageScroll(new Thickness(28, 18, 26, 28), Palette.Bg);
+            host.Content = new Grid();
+            Grid.SetColumn(host, 1);
+            grid.Children.Add(side);
+            grid.Children.Add(host);
+            grid.Tag = host;
+            return grid;
+        }
+
+        void Enter(string name)
+        {
+            user = name;
+            who.Text = name;
+            login.Visibility = Visibility.Collapsed;
+            app.Visibility = Visibility.Visible;
+            SetChrome(true);
+            Navigate("home");
+            RefreshStatus();
+        }
+
+        void Navigate(string page)
+        {
+            foreach (var pair in nav)
+            {
+                var on = pair.Key == page;
+                pair.Value.Background = on ? Palette.Card2 : Brushes.Transparent;
+                pair.Value.Foreground = on ? Palette.Text : Palette.Muted;
+                pair.Value.BorderBrush = on ? Palette.Mint : Brushes.Transparent;
+            }
+            UIElement view;
+            if (!pages.TryGetValue(page, out view))
+            {
+                if (page == "home") view = PageHome();
+                else if (page == "jogo") view = PageJogo();
+                else if (page == "sistema") view = PageSistema();
+                else if (page == "limpeza") view = PageLimpeza();
+                else if (page == "apps") view = PageApps();
+                else if (page == "reparar") view = PageReparar();
+                else view = PageConta();
+                pages[page] = view;
+            }
+            var host = (PageScroll)app.Tag;
+            host.Content = view;
+            if (page == "home" || page == "jogo") RefreshStatus();
+            if (page == "apps" && !appsReady) LoadApps();
+        }
+
+        UIElement PageHome()
+        {
+            var root = new StackPanel();
+            hello = Text("Veja o estado do PC e aplique o pacote recomendado.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 16));
+            root.Children.Add(Text("Início", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            root.Children.Add(hello);
+            var stats = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 16) };
+            winText = Stat(stats, "Windows");
+            ramText = Stat(stats, "Memória");
+            gpuText = Stat(stats, "Placa de vídeo");
+            cpuText = Stat(stats, "Processador");
+            root.Children.Add(stats);
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.8, GridUnitType.Star) });
+            var hero = Card();
+            var heroStack = new StackPanel();
+            heroStack.Children.Add(Text("RECOMENDADO", 12, Palette.Mint, FontWeights.Bold, new Thickness(0, 0, 0, 8)));
+            heroStack.Children.Add(Text("Otimizar em 1 clique", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+            heroStack.Children.Add(Text("Mouse, teclado, USB, Game Bar, energia, rede, telemetria, interface, apps em segundo plano e prioridade do CS2 e do FiveM. Cria um ponto de restauração antes.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 10)));
+            foreach (var line in new[] { "Não remove seus programas, o Edge nem o OneDrive.", "Não mexe na integridade de memória. O Valorant precisa dela ligada.", "Não esvazia a RAM." })
+                heroStack.Children.Add(Text("●  " + line, 14, Palette.Text, FontWeights.Normal, new Thickness(0, 3, 0, 0)));
+            var go = Button("Otimizar agora", true);
+            go.HorizontalAlignment = HorizontalAlignment.Left;
+            go.Margin = new Thickness(0, 16, 0, 0);
+            go.Click += async delegate
+            {
+                if (!await Ask("Otimizar em 1 clique?", "Será criado um ponto de restauração e aplicado só o pacote recomendado.", new[] { "Mouse, teclado e USB", "Game Bar, GPU e prioridade de CS2 e FiveM", "Energia, rede, telemetria, interface e apps em segundo plano", "Edge, OneDrive e integridade de memória ficam de fora" }, "Confirmar", false)) return;
+                await Run("Pacote aplicado", "Criando o ponto de restauração e gravando o pacote.", () => Tweaks.OneClick());
+            };
+            heroStack.Children.Add(go);
+            hero.Child = heroStack;
+            var state = Card();
+            var stateStack = new StackPanel();
+            stateStack.Children.Add(Text("Estado atual", 18, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+            flags = new StackPanel();
+            stateStack.Children.Add(flags);
+            state.Child = stateStack;
+            Grid.SetColumn(state, 2);
+            row.Children.Add(hero);
+            row.Children.Add(state);
+            root.Children.Add(row);
+            return root;
+        }
+
+        UIElement PageJogo()
+        {
+            var root = new StackPanel();
+            root.Children.Add(Text("Jogo", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            root.Children.Add(Text("O que muda na mira, no teclado, na placa e no Valorant. Os números são lidos do Windows.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
+            var meters = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 14) };
+            jogoMouse = Meter(meters, "Mouse");
+            jogoKey = Meter(meters, "Teclado");
+            jogoUsb = Meter(meters, "USB");
+            jogoMem = Meter(meters, "Integridade");
+            root.Children.Add(meters);
+            var card = Card();
+            var list = new StackPanel();
+            list.Children.Add(Row("Aceleração do mouse", "Desliga a aceleração. O ponteiro fica na marca padrão, sem acelerar.", game, "mouse", true, null));
+            list.Children.Add(Row("Teclado imediato", "Atraso inicial em zero e sem o aviso de Sticky Keys.", game, "keyboard", true, null));
+            list.Children.Add(Row("USB acordado na tomada", "Mouse e teclado não dormem no meio do uso.", game, "network", true, null));
+            list.Children.Add(Row("Gravação do Game Bar", "Para a captura em segundo plano e deixa o Modo de Jogo ligado.", game, "gamedvr", true, null));
+            list.Children.Add(Row("GPU acelerada", "Menos latência em placa compatível. Vale depois de reiniciar.", game, "hags", true, null));
+            list.Children.Add(Row("Prioridade do CS2 e do FiveM", "Um nível acima do normal, e a GPU dedicada quando o notebook tem duas.", game, "games", true, null));
+            list.Children.Add(Row("Ligar integridade de memória", "O Valorant fecha quando isso está desligado. Vale depois de reiniciar.", game, "memon", false, "Valorant"));
+            card.Child = list;
+            root.Children.Add(card);
+            var bar = new DockPanel { Margin = new Thickness(0, 14, 0, 0) };
+            var note = Text("O mouse muda na hora. Mexa o ponteiro depois de aplicar.", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 8, 12, 0));
+            var apply = Button("Aplicar ajustes de jogo", true);
+            apply.HorizontalAlignment = HorizontalAlignment.Right;
+            DockPanel.SetDock(apply, Dock.Right);
+            apply.Click += async delegate
+            {
+                var ids = On(game);
+                if (ids.Count == 0) { Toast("Marque pelo menos um ajuste."); return; }
+                if (!await Ask("Aplicar os ajustes de jogo?", ids.Contains("memon") ? "A integridade de memória será ligada. Reinicie depois." : "Só o que está marcado nesta página.", Names(ids), "Aplicar", false)) return;
+                await Run("Ajustes de jogo", "Gravando mouse, teclado, placa e jogos.", () => Tweaks.Apply(ids, false));
+            };
+            bar.Children.Add(apply);
+            bar.Children.Add(note);
+            root.Children.Add(bar);
+            return root;
+        }
+
+        UIElement PageSistema()
+        {
+            var root = new StackPanel();
+            root.Children.Add(Text("Sistema", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            root.Children.Add(Text("Energia, o que o Windows coleta e o peso da interface. Antivírus e Windows Update continuam ligados.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
+            var card = Card();
+            var list = new StackPanel();
+            list.Children.Add(Row("Energia para jogos", "Plano equilibrado no modo Melhor desempenho. A CPU não fica presa em 100%.", system, "power", true, null));
+            list.Children.Add(Row("Apps em segundo plano", "Apps da Microsoft Store deixam de ficar acordados. Steam, Discord e o que você abre continuam normais.", system, "background", true, null));
+            list.Children.Add(Row("Telemetria e anúncios", "Desliga coleta de diagnóstico, sugestões, o Copilot e o download de atualizações de outros PCs. A atualização continua.", system, "telemetry", true, null));
+            list.Children.Add(Row("Interface mais leve", "Menos animação e transparência. No Windows 11, o menu do botão direito volta ao formato clássico.", system, "ui", true, null));
+            card.Child = list;
+            root.Children.Add(card);
+            var apply = Button("Aplicar ajustes de sistema", true);
+            apply.HorizontalAlignment = HorizontalAlignment.Right;
+            apply.Margin = new Thickness(0, 14, 0, 0);
+            apply.Click += async delegate
+            {
+                var ids = On(system);
+                if (ids.Count == 0) { Toast("Marque pelo menos um ajuste."); return; }
+                if (!await Ask("Aplicar os ajustes de sistema?", "Só o que está marcado nesta página.", Names(ids), "Aplicar", false)) return;
+                await Run("Ajustes de sistema", "Gravando energia, segundo plano, telemetria e interface.", () => Tweaks.Apply(ids, false));
+            };
+            root.Children.Add(apply);
+            return root;
+        }
+
+        UIElement PageLimpeza()
+        {
+            var root = new StackPanel();
+            root.Children.Add(Text("Limpeza", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            lastClean = Text("Última limpeza: ainda não foi feita por aqui.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14));
+            root.Children.Add(lastClean);
+            var card = Card();
+            var list = new StackPanel();
+            list.Children.Add(Row("Arquivos temporários", "Remove temporários do Windows e do usuário.", clean, "temp", true, null));
+            list.Children.Add(Row("Lixeira", "Apaga o que está na lixeira de todas as unidades.", clean, "recycle", true, null));
+            list.Children.Add(Row("Cache do Windows Update", "Remove instaladores já baixados. A atualização continua.", clean, "wu", true, null));
+            list.Children.Add(Row("Miniaturas", "As miniaturas do Explorador são recriadas depois.", clean, "thumbs", true, null));
+            list.Children.Add(Row("Prefetch", "Deixa a próxima abertura de programas mais lenta. Não aumenta FPS.", clean, "prefetch", false, "Não recomendado"));
+            list.Children.Add(Row("Logs do Valorant", "Apaga logs e crashes. Configuração e sensibilidade ficam.", clean, "valorant", false, null));
+            list.Children.Add(Row("Cache do FiveM", "Use se o FiveM estiver travando. A próxima entrada baixa os arquivos de novo.", clean, "fivem", false, "Redownload"));
+            list.Children.Add(Row("Cache de shaders", "Apaga o cache da placa. A próxima partida pode engasgar enquanto os shaders são recriados.", clean, "shaders", false, "Recria"));
+            list.Children.Add(Row("Vídeos do Game Bar", "Apaga os clipes gravados na pasta Vídeos. Não mexe em outras pastas.", clean, "captures", false, null));
+            card.Child = list;
+            root.Children.Add(card);
+            var apply = Button("Limpar selecionados", true);
+            apply.HorizontalAlignment = HorizontalAlignment.Right;
+            apply.Margin = new Thickness(0, 14, 0, 0);
+            apply.Click += async delegate
+            {
+                var ids = On(clean);
+                if (ids.Count == 0) { Toast("Marque pelo menos um item."); return; }
+                if (!await Ask("Limpar os itens marcados?", "A limpeza libera espaço. Ela não aumenta FPS sozinha.", Names(ids), "Limpar", false)) return;
+                await Run("Limpeza concluída", "Apagando os arquivos marcados.", () => Tweaks.Clean(ids));
+            };
+            root.Children.Add(apply);
+            return root;
+        }
+
+        UIElement PageApps()
+        {
+            var root = new StackPanel();
+            root.Children.Add(Text("Aplicativos", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            root.Children.Add(Text("O que o Windows colocou sozinho, e os programas que abrem junto com o PC. Spotify, Discord, Steam, a Loja, o Paint e o Game Bar não entram na remoção.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 12)));
+            appSummary = Text("Lendo os aplicativos deste PC…", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 12));
+            root.Children.Add(appSummary);
+            root.Children.Add(Text("INSTALADOS AGORA", 12, Palette.Muted, FontWeights.Bold, new Thickness(0, 0, 0, 8)));
+            var installed = Card();
+            installedHost = new StackPanel();
+            installedHost.Children.Add(Text("Lendo…", 14, Palette.Muted, FontWeights.Normal, new Thickness(0)));
+            installed.Child = installedHost;
+            root.Children.Add(installed);
+            var oneRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 16) };
+            onedrive = new SwitchBox(false);
+            oneRow.Children.Add(onedrive);
+            oneRow.Children.Add(Text("Remover o OneDrive também. Não apaga arquivos que já estão na pasta.", 14, Palette.Text, FontWeights.Normal, new Thickness(12, 4, 0, 0)));
+            root.Children.Add(oneRow);
+            root.Children.Add(Text("ABREM COM O WINDOWS", 12, Palette.Muted, FontWeights.Bold, new Thickness(0, 0, 0, 8)));
+            root.Children.Add(Text("Desligar tira o programa da inicialização. Ele continua instalado. Antivírus e o teclado do Windows ficam protegidos.", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 8)));
+            var startup = Card();
+            startupHost = new StackPanel();
+            startupHost.Children.Add(Text("Lendo…", 14, Palette.Muted, FontWeights.Normal, new Thickness(0)));
+            startup.Child = startupHost;
+            root.Children.Add(startup);
+            var fold = new Expander { Header = "Lista completa do que pode ser removido", Foreground = Palette.Muted, Margin = new Thickness(0, 14, 0, 0) };
+            var catalog = Card();
+            catalogHost = new StackPanel();
+            catalog.Child = catalogHost;
+            fold.Content = catalog;
+            root.Children.Add(fold);
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+            var reload = Button("Atualizar", false);
+            reload.Margin = new Thickness(0, 0, 8, 0);
+            reload.Click += delegate { appsReady = false; LoadApps(); };
+            var mark = Button("Marcar instalados", false);
+            mark.Margin = new Thickness(0, 0, 8, 0);
+            mark.Click += delegate { foreach (var pick in picks) pick.Box.SetOn(pick.App.Installed || pick.App.Provisioned); };
+            var remove = Button("Remover selecionados", true);
+            remove.Click += async delegate
+            {
+                var ids = picks.Where(p => p.Box.IsOn).Select(p => p.App.Id).ToList();
+                if (ids.Count == 0 && !onedrive.IsOn) { Toast("Marque pelo menos um app."); return; }
+                var names = picks.Where(p => ids.Contains(p.App.Id)).Select(p => p.App.Name).ToList();
+                if (onedrive.IsOn) names.Add("OneDrive");
+                if (!await Ask("Remover estes apps?", "Dá para instalar de novo pela Microsoft Store.", names, "Remover", false)) return;
+                await Run("Aplicativos", "Removendo os apps marcados.", () => Tweaks.RemoveApps(ids, onedrive.IsOn));
+                appsReady = false;
+                LoadApps();
+            };
+            actions.Children.Add(reload);
+            actions.Children.Add(mark);
+            actions.Children.Add(remove);
+            root.Children.Add(actions);
+            return root;
+        }
+
+        UIElement PageReparar()
+        {
+            var root = new StackPanel();
+            root.Children.Add(Text("Reparar", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            root.Children.Add(Text("Desfaz o que a versão antiga piorava e guarda um ponto antes de mudanças grandes.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
+            root.Children.Add(ActionCard("Ponto de restauração", "Crie antes de qualquer mudança grande. O 1 clique também tenta criar um.", "Criar agora", async delegate
+            {
+                await Run("Restauração", "Criando o ponto de restauração.", () => Tweaks.RestorePoint());
+            }));
+            root.Children.Add(ActionCard("Corrigir ajustes ruins", "Religa o SysMain, a otimização de tela cheia, o timer dinâmico e a sobreposição da imagem. Tira o plano que deixava a CPU em 100%.", "Corrigir", async delegate
+            {
+                await Run("Correção", "Restaurando os ajustes que atrapalhavam.", () => Tweaks.Repair());
+            }));
+            root.Children.Add(ActionCard("Prioridade dos jogos", "Remove a prioridade do CS2, do FiveM e do GTA.", "Remover", async delegate
+            {
+                await Run("Prioridades", "Removendo a prioridade dos jogos.", () => Tweaks.Unpriority());
+            }));
+            root.Children.Add(ActionCard("Ligar integridade de memória", "O Valorant fecha quando isso está desligado. Liga a proteção e pede reinício.", "Ligar agora", async delegate
+            {
+                if (!await Ask("Ligar a integridade de memória?", "O Valorant precisa dela. O PC deve ser reiniciado depois.", new string[0], "Ligar", false)) return;
+                await Run("Integridade de memória", "Marcando a proteção para ligar.", () => Tweaks.Memory(true));
+            }, true));
+            root.Children.Add(Text("AVANÇADO", 12, Palette.Warn, FontWeights.Bold, new Thickness(0, 8, 0, 8)));
+            var advanced = new Dictionary<string, SwitchBox>();
+            var card = Card();
+            var list = new StackPanel();
+            list.Children.Add(Row("Desligar integridade de memória", "Pode subir um pouco o FPS em CPU antiga, mas o Valorant fecha. Não mexe em TPM nem Secure Boot.", advanced, "mem", false, "Cuidado"));
+            list.Children.Add(Row("Remover o navegador Edge", "Não aumenta FPS. O componente que outros programas usam fica.", advanced, "edge", false, "Cuidado"));
+            list.Children.Add(Row("Corrigir engasgo da imagem", "Desliga uma sobreposição que pisca ou trava em algumas placas. Não aumenta FPS. Vale depois de reiniciar.", advanced, "mpo", false, "Só se engasgar"));
+            card.Child = list;
+            root.Children.Add(card);
+            var apply = Button("Aplicar avançado", false);
+            apply.HorizontalAlignment = HorizontalAlignment.Right;
+            apply.Margin = new Thickness(0, 14, 0, 0);
+            apply.Click += async delegate
+            {
+                var ids = On(advanced);
+                if (ids.Count == 0) { Toast("Marque pelo menos uma opção avançada."); return; }
+                var hint = ids.Contains("mem") ? "Desligar a integridade de memória faz o Valorant fechar." : ids.Contains("edge") ? "O Edge será removido. O componente que outros programas usam fica." : "A sobreposição da imagem será desligada. Reinicie depois.";
+                if (!await Ask("Aplicar opções avançadas?", hint, Names(ids), "Aplicar", false)) return;
+                await Run("Avançado", "Gravando a opção avançada.", () => Tweaks.Apply(ids, false));
+            };
+            root.Children.Add(apply);
+            return root;
+        }
+
+        UIElement PageConta()
+        {
+            var root = new StackPanel();
+            root.Children.Add(Text("Conta", 28, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
+            root.Children.Add(Text("A conta fica só neste PC. Não há servidor na internet.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
+            var card = Card();
+            var stack = new StackPanel();
+            stack.Children.Add(Text("Trocar senha", 18, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 10)));
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var oldPass = new PasswordBox { Height = 40, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, Padding = new Thickness(10, 8, 10, 8), CaretBrush = Palette.Text };
+            var newPass = new PasswordBox { Height = 40, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, Padding = new Thickness(10, 8, 10, 8), CaretBrush = Palette.Text };
+            var change = Button("Trocar senha", false);
+            change.Click += delegate
+            {
+                var fail = Accounts.ChangePassword(user, oldPass.Password, newPass.Password);
+                if (fail != null) Toast(fail);
+                else
+                {
+                    oldPass.Password = "";
+                    newPass.Password = "";
+                    Toast("Senha alterada.");
+                }
+            };
+            var left = new StackPanel();
+            left.Children.Add(Label("Senha atual"));
+            left.Children.Add(oldPass);
+            var mid = new StackPanel();
+            mid.Children.Add(Label("Nova senha"));
+            mid.Children.Add(newPass);
+            Grid.SetColumn(mid, 2);
+            Grid.SetColumn(change, 4);
+            change.VerticalAlignment = VerticalAlignment.Bottom;
+            row.Children.Add(left);
+            row.Children.Add(mid);
+            row.Children.Add(change);
+            stack.Children.Add(row);
+            card.Child = stack;
+            root.Children.Add(card);
+            var notes = Card();
+            var noteStack = new StackPanel { Margin = new Thickness(0, 0, 0, 0) };
+            notes.Margin = new Thickness(0, 14, 0, 0);
+            noteStack.Children.Add(Text("O que este programa não faz", 18, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+            foreach (var line in new[] {
+                "Não desliga antivírus, Windows Update, busca ou SysMain.",
+                "Não esvazia a memória RAM nem apaga o prefetch para prometer FPS.",
+                "Não trava o processador em 100% nem desliga a otimização de tela cheia.",
+                "Não baixa programa da NVIDIA. Use o Reflex dentro do jogo." })
+                noteStack.Children.Add(Text("●  " + line, 14, Palette.Text, FontWeights.Normal, new Thickness(0, 3, 0, 0)));
+            var open = Button("Abrir pasta do registro", false);
+            open.HorizontalAlignment = HorizontalAlignment.Left;
+            open.Margin = new Thickness(0, 14, 0, 0);
+            open.Click += delegate { Tweaks.OpenData(); Toast("Pasta aberta."); };
+            noteStack.Children.Add(open);
+            notes.Child = noteStack;
+            root.Children.Add(notes);
+            return root;
+        }
+
+        async void RefreshStatus()
+        {
+            PcStatus status = null;
+            await Task.Run(() => { try { status = Tweaks.ReadStatus(); } catch { } });
+            if (status == null) return;
+            if (winText != null) { winText.Text = status.Windows; winText.ToolTip = status.Windows; }
+            if (ramText != null) { ramText.Text = status.Ram; ramText.ToolTip = status.Ram; }
+            if (gpuText != null) { gpuText.Text = string.IsNullOrEmpty(status.Gpu) ? "—" : status.Gpu; gpuText.ToolTip = gpuText.Text; }
+            if (cpuText != null) { cpuText.Text = string.IsNullOrEmpty(status.Cpu) ? "—" : status.Cpu; cpuText.ToolTip = cpuText.Text; }
+            if (hello != null) hello.Text = "Olá, " + user + ". " + (status.Admin ? "Pronto para aplicar." : "Abra de novo para aceitar o pedido de administrador.");
+            if (lastClean != null) lastClean.Text = string.IsNullOrEmpty(status.LastClean) ? "Última limpeza: ainda não foi feita por aqui." : "Última limpeza: " + status.LastClean;
+            if (flags != null)
+            {
+                flags.Children.Clear();
+                Flag(flags, "Mouse sem aceleração", status.MouseOk, "Aplicado", "Pendente");
+                Flag(flags, "Teclado sem atraso", status.KeyOk, "Aplicado", "Pendente");
+                Flag(flags, "USB sem suspensão", status.UsbOk, "Aplicado", "Pendente");
+                Flag(flags, "Game Bar sem gravação", status.DvrOk, "Aplicado", "Pendente");
+                Flag(flags, "GPU acelerada", status.HagsOk, "Aplicado", "Pendente");
+                Flag(flags, "Integridade de memória", status.MemoryOk, "Ligada", "Desligada");
+                Flag(flags, "Apps em segundo plano", status.BackgroundOk, "Contidos", "Livres");
+                Flag(flags, "Telemetria reduzida", status.TelemetryOk, "Aplicado", "Pendente");
+            }
+            if (jogoMouse != null) jogoMouse.Text = status.MouseOk ? "1:1 ativo" : "Aceleração ligada";
+            if (jogoKey != null) jogoKey.Text = status.KeyOk ? "Atraso em 0" : "Com espera";
+            if (jogoUsb != null) jogoUsb.Text = status.UsbOk ? "Acordado" : "Pode dormir";
+            if (jogoMem != null) jogoMem.Text = status.MemoryOk ? "Ligada" : "Desligada";
+        }
+
+        async void LoadApps()
+        {
+            if (installedHost == null) return;
+            installedHost.Children.Clear();
+            installedHost.Children.Add(Text("Lendo os aplicativos e a inicialização…", 14, Palette.Muted, FontWeights.Normal, new Thickness(0)));
+            startupHost.Children.Clear();
+            List<StoreApp> apps = null;
+            List<StartupItem> startup = null;
+            string error = null;
+            await Task.Run(() =>
+            {
+                try
+                {
+                    apps = Tweaks.ScanApps();
+                    startup = Tweaks.ReadStartup();
+                }
+                catch (Exception ex) { error = ex.Message; }
+            });
+            if (error != null)
+            {
+                installedHost.Children.Clear();
+                installedHost.Children.Add(Text(error, 14, Palette.Danger, FontWeights.Normal, new Thickness(0)));
+                return;
+            }
+            picks.Clear();
+            var installed = apps.Where(a => a.Installed || a.Provisioned).ToList();
+            var starting = startup.Count(s => s.Enabled && !s.Locked);
+            appSummary.Text = installed.Count + " neste PC  ·  " + apps.Count(a => !a.Installed && !a.Provisioned) + " já fora  ·  " + starting + " abrem com o Windows";
+            installedHost.Children.Clear();
+            if (installed.Count == 0)
+                installedHost.Children.Add(Text("Nenhum app de fábrica está instalado. Os seus programas não aparecem aqui.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0)));
+            else
+            {
+                foreach (var group in installed.Select(a => a.Group).Distinct())
+                {
+                    installedHost.Children.Add(Text(group.ToUpperInvariant(), 12, Palette.Muted, FontWeights.Bold, new Thickness(0, 8, 0, 4)));
+                    foreach (var appItem in installed.Where(a => a.Group == group))
+                    {
+                        var sw = new SwitchBox(true);
+                        picks.Add(new AppPick { App = appItem, Box = sw });
+                        installedHost.Children.Add(InfoRow(appItem.Name, appItem.Desc, appItem.Installed ? "Instalado" : "Provisionado", sw));
+                    }
+                }
+            }
+            startupHost.Children.Clear();
+            if (startup.Count == 0)
+                startupHost.Children.Add(Text("Nenhum programa extra abre com o Windows.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0)));
+            else
+            {
+                foreach (var item in startup)
+                {
+                    var sw = new SwitchBox(item.Enabled);
+                    sw.IsEnabled = !item.Locked;
+                    sw.SetOn(item.Enabled && !item.Locked ? item.Enabled : item.Enabled);
+                    if (item.Locked) sw.IsEnabled = false;
+                    var captured = item;
+                    sw.MouseLeftButtonUp += async delegate
+                    {
+                        var turnOn = sw.IsOn;
+                        if (captured.Locked) return;
+                        if (busyOn)
+                        {
+                            sw.SetOn(!turnOn);
+                            return;
+                        }
+                        var ok = await RunQuiet("Inicialização", turnOn ? "Ativando " + captured.Name + "." : "Tirando " + captured.Name + " da inicialização.", delegate
+                        {
+                            var fail = Tweaks.SetStartup(captured.Id, turnOn);
+                            if (fail != null) throw new InvalidOperationException(fail);
+                            return new JobResult();
+                        });
+                        if (!ok)
+                        {
+                            sw.SetOn(!turnOn);
+                            return;
+                        }
+                        Toast(turnOn ? captured.Name + " vai abrir com o Windows." : captured.Name + " não abre mais com o Windows. Vale na próxima inicialização.");
+                    };
+                    startupHost.Children.Add(InfoRow(item.Name + "  ·  " + item.Scope + (item.Locked ? "  ·  Protegido" : ""), item.Command, null, sw, true));
+                }
+            }
+            catalogHost.Children.Clear();
+            foreach (var group in apps.Select(a => a.Group).Distinct())
+            {
+                catalogHost.Children.Add(Text(group.ToUpperInvariant(), 12, Palette.Muted, FontWeights.Bold, new Thickness(0, 8, 0, 4)));
+                foreach (var appItem in apps.Where(a => a.Group == group))
+                {
+                    var state = appItem.Installed ? "Instalado" : appItem.Provisioned ? "Provisionado" : "Fora";
+                    catalogHost.Children.Add(InfoRow(appItem.Name, appItem.Desc, state, null));
+                }
+            }
+            appsReady = true;
+        }
+
+        async Task Run(string title, string busyLine, Func<JobResult> work)
+        {
+            if (busyOn) return;
+            busyOn = true;
+            ShowBusy(title, busyLine);
+            JobResult result = null;
+            Exception error = null;
+            await Task.Run(() => { try { result = work(); } catch (Exception ex) { error = ex; } });
+            HideBusy();
+            busyOn = false;
+            if (error != null) { Toast(error.Message); return; }
+            await Ask(title, result.Reboot ? "Parte disso só vale depois de reiniciar." : "Concluído.", result.Lines, "Fechar", true);
+            if (result.Reboot && await Ask("Reiniciar agora?", "O PC reinicia em 15 segundos. Salve o que estiver aberto.", new string[0], "Reiniciar", false))
+                Tweaks.Reboot();
+            RefreshStatus();
+        }
+
+        async Task<bool> RunQuiet(string title, string busyLine, Func<JobResult> work)
+        {
+            if (busyOn) return false;
+            busyOn = true;
+            ShowBusy(title, busyLine);
+            Exception error = null;
+            await Task.Run(delegate { try { work(); } catch (Exception ex) { error = ex; } });
+            HideBusy();
+            busyOn = false;
+            if (error != null)
+            {
+                Toast(error.Message);
+                return false;
+            }
+            return true;
+        }
+
+        void ShowBusy(string title, string text)
+        {
+            busyTitle.Text = title;
+            busyText.Text = text;
+            busy.Visibility = Visibility.Visible;
+        }
+
+        void HideBusy() { busy.Visibility = Visibility.Collapsed; }
+
+        Task<bool> Ask(string title, string text, IList<string> lines, string ok, bool hideCancel)
+        {
+            modalWait = new TaskCompletionSource<bool>();
+            modalTitle.Text = title;
+            modalText.Text = text ?? "";
+            modalList.Children.Clear();
+            if (lines != null)
+                foreach (var line in lines)
+                    modalList.Children.Add(Text("●  " + line, 14, Palette.Text, FontWeights.Normal, new Thickness(0, 3, 0, 0)));
+            modalOk.Content = ok;
+            modalOk.IsEnabled = true;
+            modalCancel.IsEnabled = true;
+            modalCancel.Visibility = hideCancel ? Visibility.Collapsed : Visibility.Visible;
+            modal.Visibility = Visibility.Visible;
+            modalOk.Focus();
+            return modalWait.Task;
+        }
+
+        void CloseModal(bool ok)
+        {
+            modal.Visibility = Visibility.Collapsed;
+            if (modalWait != null) modalWait.TrySetResult(ok);
+        }
+
+        void OnKey(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && modal.Visibility == Visibility.Visible)
+            {
+                if (modalCancel.Visibility == Visibility.Visible) CloseModal(false);
+                else CloseModal(true);
+            }
+        }
+
+        Grid BuildBusy()
+        {
+            var grid = new Grid { Background = new SolidColorBrush(Color.FromArgb(190, 5, 8, 14)), Visibility = Visibility.Collapsed };
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Mint, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(28), Width = 420, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var stack = new StackPanel();
+            stack.Children.Add(new ProgressBar { IsIndeterminate = true, Height = 6, Margin = new Thickness(0, 0, 0, 16), Foreground = Palette.Mint, Background = Palette.Card2, BorderThickness = new Thickness(0) });
+            busyTitle = Text("Aplicando", 18, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 6));
+            busyText = Text("", 14, Palette.Muted, FontWeights.Normal, new Thickness(0));
+            stack.Children.Add(busyTitle);
+            stack.Children.Add(busyText);
+            card.Child = stack;
+            grid.Children.Add(card);
+            return grid;
+        }
+
+        Grid BuildModal()
+        {
+            var grid = new Grid { Background = new SolidColorBrush(Color.FromArgb(190, 5, 8, 14)), Visibility = Visibility.Collapsed };
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(22), Width = 520, MaxHeight = 560, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var stack = new DockPanel();
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+            modalCancel = Button("Cancelar", false);
+            modalCancel.Margin = new Thickness(0, 0, 8, 0);
+            modalCancel.MinWidth = 120;
+            modalOk = Button("Confirmar", true);
+            modalOk.MinWidth = 120;
+            modalCancel.Click += delegate { CloseModal(false); };
+            modalOk.Click += delegate { CloseModal(true); };
+            buttons.Children.Add(modalCancel);
+            buttons.Children.Add(modalOk);
+            DockPanel.SetDock(buttons, Dock.Bottom);
+            modalTitle = Text("", 18, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8));
+            modalText = Text("", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 8));
+            modalList = new StackPanel();
+            var scroll = new PageScroll(new Thickness(0, 0, 16, 0), Brushes.Transparent);
+            scroll.Cap(280);
+            scroll.Content = modalList;
+            var body = new StackPanel();
+            body.Children.Add(modalTitle);
+            body.Children.Add(modalText);
+            body.Children.Add(scroll);
+            stack.Children.Add(buttons);
+            stack.Children.Add(body);
+            card.Child = stack;
+            grid.Children.Add(card);
+            return grid;
+        }
+
+        void Toast(string text)
+        {
+            var item = new Border { Background = Palette.Card2, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 10, 12, 10), Margin = new Thickness(0, 6, 0, 0), MaxWidth = 360, Child = Text(text, 13, Palette.Text, FontWeights.Normal, new Thickness(0)) };
+            toasts.Children.Add(item);
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+            timer.Tick += delegate { timer.Stop(); toasts.Children.Remove(item); };
+            timer.Start();
+        }
+
+        static List<string> On(Dictionary<string, SwitchBox> map)
+        {
+            return map.Where(p => p.Value.IsOn).Select(p => p.Key).ToList();
+        }
+
+        static List<string> Names(IList<string> ids)
+        {
+            var map = new Dictionary<string, string> {
+                { "mouse", "Aceleração do mouse" }, { "keyboard", "Teclado imediato" }, { "network", "USB acordado" },
+                { "gamedvr", "Game Bar sem gravação" }, { "hags", "GPU acelerada" }, { "games", "Prioridade dos jogos" },
+                { "memon", "Ligar integridade de memória" }, { "power", "Energia para jogos" }, { "telemetry", "Telemetria e anúncios" },
+                { "ui", "Interface mais leve" }, { "background", "Apps em segundo plano" }, { "mpo", "Corrigir engasgo da imagem" },
+                { "mem", "Desligar integridade de memória" }, { "edge", "Remover o Edge" },
+                { "temp", "Arquivos temporários" }, { "recycle", "Lixeira" }, { "wu", "Cache do Windows Update" },
+                { "thumbs", "Miniaturas" }, { "prefetch", "Prefetch" }, { "valorant", "Logs do Valorant" }, { "fivem", "Cache do FiveM" },
+                { "shaders", "Cache de shaders" }, { "captures", "Vídeos do Game Bar" }
+            };
+            return ids.Select(id => map.ContainsKey(id) ? map[id] : id).ToList();
+        }
+
+        static TextBlock Stat(Panel parent, string caption)
+        {
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(12), Margin = new Thickness(0, 0, 8, 0) };
+            var stack = new StackPanel();
+            stack.Children.Add(Text(caption, 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 6)));
+            var value = Text("…", 13, Palette.Text, FontWeights.SemiBold, new Thickness(0));
+            value.TextWrapping = TextWrapping.NoWrap;
+            value.TextTrimming = TextTrimming.CharacterEllipsis;
+            stack.Children.Add(value);
+            card.Child = stack;
+            parent.Children.Add(card);
+            return value;
+        }
+
+        static TextBlock Meter(Panel parent, string caption)
+        {
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(12), Margin = new Thickness(0, 0, 8, 0) };
+            var stack = new StackPanel();
+            stack.Children.Add(Text(caption.ToUpperInvariant(), 11, Palette.Muted, FontWeights.Bold, new Thickness(0, 0, 0, 6)));
+            var value = Text("Lendo", 16, Palette.Text, FontWeights.SemiBold, new Thickness(0));
+            stack.Children.Add(value);
+            card.Child = stack;
+            parent.Children.Add(card);
+            return value;
+        }
+
+        static void Flag(Panel parent, string name, bool ok, string on, string off)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var pill = new Border { Background = ok ? Palette.Make(0x14, 0x33, 0x28) : Palette.Card2, CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 3, 8, 3), HorizontalAlignment = HorizontalAlignment.Right };
+            pill.Child = Text(ok ? on : off, 12, ok ? Palette.Mint : Palette.Muted, FontWeights.SemiBold, new Thickness(0));
+            DockPanel.SetDock(pill, Dock.Right);
+            row.Children.Add(pill);
+            row.Children.Add(Text(name, 14, Palette.Text, FontWeights.Normal, new Thickness(0, 2, 8, 0)));
+            parent.Children.Add(row);
+        }
+
+        static Border Card()
+        {
+            return new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(8, 4, 8, 4) };
+        }
+
+        static Grid Row(string title, string desc, Dictionary<string, SwitchBox> map, string id, bool on, string badge)
+        {
+            var sw = new SwitchBox(on);
+            map[id] = sw;
+            return InfoRow(title, desc, badge, sw);
+        }
+
+        static Grid InfoRow(string title, string desc, string badge, FrameworkElement right, bool singleLine = false)
+        {
+            var grid = new Grid { Margin = new Thickness(8, 10, 8, 10) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var text = new StackPanel();
+            var head = new StackPanel { Orientation = Orientation.Horizontal };
+            head.Children.Add(Text(title, 15, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 8, 0)));
+            if (!string.IsNullOrEmpty(badge))
+            {
+                var caution = badge == "Cuidado" || badge == "Não recomendado" || badge == "Redownload" || badge == "Recria" || badge == "Só se engasgar";
+                var pill = new Border { Background = caution ? Palette.WarnBg : Palette.Make(0x14, 0x33, 0x28), CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 2, 7, 2), VerticalAlignment = VerticalAlignment.Center };
+                pill.Child = Text(badge, 11, caution ? Palette.Warn : Palette.Mint, FontWeights.Bold, new Thickness(0));
+                head.Children.Add(pill);
+            }
+            text.Children.Add(head);
+            if (!string.IsNullOrEmpty(desc))
+            {
+                var line = Text(desc, 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 3, 12, 0));
+                if (singleLine)
+                {
+                    line.TextWrapping = TextWrapping.NoWrap;
+                    line.TextTrimming = TextTrimming.CharacterEllipsis;
+                    line.ToolTip = desc;
+                }
+                text.Children.Add(line);
+            }
+            if (right != null)
+            {
+                right.VerticalAlignment = VerticalAlignment.Center;
+                Grid.SetColumn(right, 1);
+                grid.Children.Add(right);
+            }
+            grid.Children.Add(text);
+            return grid;
+        }
+
+        UIElement ActionCard(string title, string desc, string button, System.Action click, bool primary = false)
+        {
+            var card = Card();
+            card.Margin = new Thickness(0, 0, 0, 10);
+            card.Padding = new Thickness(16, 14, 16, 14);
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var text = new StackPanel();
+            text.Children.Add(Text(title, 16, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 4)));
+            text.Children.Add(Text(desc, 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 16, 0)));
+            var b = Button(button, primary);
+            b.Click += delegate { click(); };
+            Grid.SetColumn(b, 1);
+            b.VerticalAlignment = VerticalAlignment.Center;
+            grid.Children.Add(text);
+            grid.Children.Add(b);
+            card.Child = grid;
+            return card;
+        }
+
+        static TextBlock Label(string text)
+        {
+            return Text(text, 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 4));
+        }
+
+        static TextBox Box()
+        {
+            return new TextBox { Height = 40, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, Padding = new Thickness(10, 8, 10, 8), FontSize = 14, CaretBrush = Palette.Text, Margin = new Thickness(0, 0, 0, 10) };
+        }
+
+        static TextBlock Text(string value, double size, Brush color, FontWeight weight, Thickness margin)
+        {
+            return new TextBlock { Text = value, FontSize = size, Foreground = color, FontWeight = weight, Margin = margin, TextWrapping = TextWrapping.Wrap };
+        }
+
+        static Button Button(string text, bool primary)
+        {
+            var button = new Button
+            {
+                Content = text,
+                Height = 38,
+                Padding = new Thickness(14, 0, 14, 0),
+                Margin = new Thickness(2),
+                Background = primary ? Palette.Mint : Brushes.Transparent,
+                Foreground = primary ? Palette.Ink : Palette.Text,
+                BorderBrush = primary ? Palette.Mint : Palette.Line,
+                BorderThickness = new Thickness(primary ? 0 : 1),
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Cursor = Cursors.Hand,
+                Template = Flat()
+            };
+            return button;
+        }
+
+        static ControlTemplate Flat()
+        {
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+            border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+            border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+            border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+            var content = new FrameworkElementFactory(typeof(ContentPresenter));
+            content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            border.AppendChild(content);
+            var template = new ControlTemplate(typeof(Button));
+            template.VisualTree = border;
+            return template;
+        }
+
+        sealed class AppPick { public StoreApp App; public SwitchBox Box; }
+
+        Grid BuildCaption()
+        {
+            var bar = new Grid { Height = 40 };
+            captionCol = new ColumnDefinition { Width = new GridLength(0) };
+            bar.ColumnDefinitions.Add(captionCol);
+            bar.ColumnDefinitions.Add(new ColumnDefinition());
+            var side = new Border { Background = Palette.Side };
+            var main = new Border { Background = Palette.Bg };
+            Grid.SetColumn(main, 1);
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+            var min = ChromeButton("\uE921", false);
+            System.Windows.Automation.AutomationProperties.SetName(min, "Minimizar");
+            min.Click += delegate { WindowState = WindowState.Minimized; };
+            var max = ChromeButton("\uE922", false);
+            maxGlyph = (TextBlock)max.Content;
+            System.Windows.Automation.AutomationProperties.SetName(max, "Maximizar");
+            max.Click += delegate { WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; };
+            var close = ChromeButton("\uE8BB", true);
+            System.Windows.Automation.AutomationProperties.SetName(close, "Fechar");
+            close.Click += delegate { Close(); };
+            buttons.Children.Add(min);
+            buttons.Children.Add(max);
+            buttons.Children.Add(close);
+            main.Child = buttons;
+            bar.Children.Add(side);
+            bar.Children.Add(main);
+            return bar;
+        }
+
+        void SetChrome(bool loggedIn)
+        {
+            captionCol.Width = loggedIn ? new GridLength(248) : new GridLength(0);
+        }
+
+        void UpdateChrome()
+        {
+            if (maxGlyph != null) maxGlyph.Text = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
+            if (frame != null) frame.BorderThickness = new Thickness(WindowState == WindowState.Maximized ? 0 : 1);
+        }
+
+        Button ChromeButton(string glyph, bool close)
+        {
+            var icon = new TextBlock
+            {
+                Text = glyph,
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 10,
+                Foreground = Palette.Text,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var button = new Button
+            {
+                Content = icon,
+                Width = 46,
+                Height = 32,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+                Template = ChromeTemplate(),
+                Focusable = false
+            };
+            WindowChrome.SetIsHitTestVisibleInChrome(button, true);
+            var hover = close ? new SolidColorBrush(Color.FromRgb(0xC4, 0x42, 0x3A)) : Palette.Card2;
+            button.MouseEnter += delegate { button.Background = hover; icon.Foreground = Brushes.White; };
+            button.MouseLeave += delegate { button.Background = Brushes.Transparent; icon.Foreground = Palette.Text; };
+            return button;
+        }
+
+        static ControlTemplate ChromeTemplate()
+        {
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+            var content = new FrameworkElementFactory(typeof(ContentPresenter));
+            content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            border.AppendChild(content);
+            var template = new ControlTemplate(typeof(Button));
+            template.VisualTree = border;
+            return template;
+        }
+
+        void OnSourceInitialized(object sender, EventArgs e)
+        {
+            var source = (HwndSource)PresentationSource.FromVisual(this);
+            source.AddHook(WndProc);
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var corner = 2;
+            DwmSetWindowAttribute(hwnd, 33, ref corner, 4);
+            var color = 0x00120E0C;
+            DwmSetWindowAttribute(hwnd, 34, ref color, 4);
+            DwmSetWindowAttribute(hwnd, 35, ref color, 4);
+        }
+
+        IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == 0x0024)
+            {
+                var mmi = (MinMaxInfo)Marshal.PtrToStructure(lParam, typeof(MinMaxInfo));
+                var monitor = MonitorFromWindow(hwnd, 2);
+                var info = new MonitorInfo();
+                info.cbSize = Marshal.SizeOf(typeof(MonitorInfo));
+                if (GetMonitorInfo(monitor, ref info))
+                {
+                    mmi.ptMaxPosition.X = info.rcWork.Left - info.rcMonitor.Left;
+                    mmi.ptMaxPosition.Y = info.rcWork.Top - info.rcMonitor.Top;
+                    mmi.ptMaxSize.X = info.rcWork.Right - info.rcWork.Left;
+                    mmi.ptMaxSize.Y = info.rcWork.Bottom - info.rcWork.Top;
+                    Marshal.StructureToPtr(mmi, lParam, true);
+                    handled = true;
+                }
+            }
+            return IntPtr.Zero;
+        }
+
+        [DllImport("user32.dll")]
+        static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+        [DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct WinPoint { public int X; public int Y; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct MinMaxInfo
+        {
+            public WinPoint ptReserved;
+            public WinPoint ptMaxSize;
+            public WinPoint ptMaxPosition;
+            public WinPoint ptMinTrackSize;
+            public WinPoint ptMaxTrackSize;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        struct WinRect { public int Left; public int Top; public int Right; public int Bottom; }
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        struct MonitorInfo
+        {
+            public int cbSize;
+            public WinRect rcMonitor;
+            public WinRect rcWork;
+            public int dwFlags;
+        }
+    }
+}
