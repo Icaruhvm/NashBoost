@@ -1,5 +1,17 @@
 # Mudanças
 
+## 2.0.4
+
+Versão de testes. Ainda não é o programa pronto.
+
+A tela de login fica desligada. O programa abre direto na janela principal. A aba Conta e o botão Sair saíram desta versão. O código da conta continua no projeto para voltar depois.
+
+A limpeza de Prefetch saiu. Apagar essa pasta deixa a próxima abertura de programas mais lenta e não sobe FPS. O cache de shaders também saiu: a próxima partida engasga enquanto a placa recria os arquivos, e isso não é ganho de desempenho.
+
+A janela continua em grafite e azul de aço. A abertura não quebra mais: a leitura do PC voltava fora da thread da janela e o processo fechava. O Início passou a ter faixa de hardware, pacote e estado lado a lado. A navegação tem ícone e a aba ativa fica marcada. Listas, botões, interruptores e a janela têm canto arredondado.
+
+A limpeza de RAM voltou ao alcance do .bat. O programa solta o working set dos processos que não são o da frente, o jogo, o anti-cheat, Discord, Steam, OBS ou o sistema. O corte de 30 MB e a proteção de navegador saíram.
+
 ## 2.0.3
 
 Versão de testes. Ainda não é o programa pronto.

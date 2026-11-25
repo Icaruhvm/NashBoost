@@ -46,14 +46,15 @@ namespace Nash
             brush.Freeze();
             return brush;
         }
-        public static readonly SolidColorBrush Bg = Make(0x1e, 0x1f, 0x22);
-        public static readonly SolidColorBrush Side = Make(0x17, 0x18, 0x1b);
-        public static readonly SolidColorBrush Card = Make(0x26, 0x27, 0x2b);
-        public static readonly SolidColorBrush Card2 = Make(0x2e, 0x30, 0x34);
-        public static readonly SolidColorBrush Line = Make(0x3c, 0x3e, 0x44);
-        public static readonly SolidColorBrush Text = Make(0xdc, 0xde, 0xe2);
-        public static readonly SolidColorBrush Muted = Make(0x8e, 0x93, 0x9a);
-        public static readonly SolidColorBrush Accent = Make(0x3f, 0x64, 0x86);
+        public static readonly SolidColorBrush Bg = Make(0x18, 0x1a, 0x1e);
+        public static readonly SolidColorBrush Side = Make(0x12, 0x13, 0x16);
+        public static readonly SolidColorBrush Card = Make(0x22, 0x24, 0x29);
+        public static readonly SolidColorBrush Card2 = Make(0x2a, 0x2d, 0x33);
+        public static readonly SolidColorBrush Line = Make(0x3a, 0x3e, 0x46);
+        public static readonly SolidColorBrush Text = Make(0xe4, 0xe6, 0xea);
+        public static readonly SolidColorBrush Muted = Make(0x8b, 0x91, 0x9a);
+        public static readonly SolidColorBrush Accent = Make(0x4c, 0x7e, 0xa8);
+        public static readonly SolidColorBrush AccentHot = Make(0x5d, 0x92, 0xbe);
         public static readonly SolidColorBrush Ink = Make(0xf3, 0xf5, 0xf7);
         public static readonly SolidColorBrush WarnBg = Make(0x32, 0x2c, 0x1e);
         public static readonly SolidColorBrush Warn = Make(0xc4, 0xa3, 0x5a);
@@ -64,13 +65,13 @@ namespace Nash
 
     sealed class SwitchBox : Border
     {
-        readonly Border knob = new Border { Width = 10, Height = 10, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+        readonly Border knob = new Border { Width = 12, Height = 12, CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
         public bool IsOn { get; private set; }
         public SwitchBox(bool on)
         {
-            Width = 32;
-            Height = 16;
-            CornerRadius = new CornerRadius(2);
+            Width = 36;
+            Height = 18;
+            CornerRadius = new CornerRadius(9);
             BorderThickness = new Thickness(1);
             BorderBrush = Palette.Line;
             Cursor = Cursors.Hand;
@@ -87,7 +88,7 @@ namespace Nash
             IsOn = on;
             Background = on ? Palette.Accent : Palette.Field;
             knob.Background = on ? Palette.Ink : Palette.Muted;
-            knob.Margin = new Thickness(on ? 18 : 2, 0, 0, 0);
+            knob.Margin = new Thickness(on ? 20 : 2, 0, 0, 0);
             Opacity = IsEnabled ? 1 : 0.45;
         }
     }
@@ -132,7 +133,7 @@ namespace Nash
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Top,
                 Background = Palette.Thumb,
-                CornerRadius = new CornerRadius(1),
+                CornerRadius = new CornerRadius(3),
                 Cursor = Cursors.Hand
             };
             rail.Children.Add(thumb);
@@ -282,13 +283,15 @@ namespace Nash
         Border captionSide;
         TextBlock maxGlyph;
         Border frame;
+        TextBlock captionTitle;
+        const int SideW = 232;
 
         public Shell()
         {
             Title = "Nash Boost";
             Width = 1180;
             Height = 760;
-            MinWidth = 1020;
+            MinWidth = 1040;
             MinHeight = 680;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             WindowStyle = WindowStyle.None;
@@ -298,12 +301,14 @@ namespace Nash
             Foreground = Palette.Text;
             UseLayoutRounding = true;
             SnapsToDevicePixels = true;
+            TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+            TextOptions.SetTextRenderingMode(this, TextRenderingMode.ClearType);
             var chrome = new WindowChrome
             {
                 CaptionHeight = 40,
                 ResizeBorderThickness = new Thickness(6),
                 GlassFrameThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(0),
+                CornerRadius = new CornerRadius(8),
                 UseAeroCaptionButtons = false
             };
             WindowChrome.SetWindowChrome(this, chrome);
@@ -314,15 +319,14 @@ namespace Nash
             }
             catch { }
             var root = new Grid();
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(41) });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             var caption = BuildCaption();
             Grid.SetRow(caption, 0);
             var body = new Grid();
             Grid.SetRow(body, 1);
-            login = BuildLogin();
+            login = new Grid { Visibility = Visibility.Collapsed };
             app = BuildApp();
-            app.Visibility = Visibility.Collapsed;
             busy = BuildBusy();
             modal = BuildModal();
             toasts = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(18) };
@@ -337,12 +341,13 @@ namespace Nash
             Grid.SetRowSpan(modal, 2);
             Grid.SetRowSpan(toasts, 2);
             frame = new Border { Background = Palette.Bg, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Child = root };
+            frame.SizeChanged += delegate { ApplyClip(frame); };
             Content = frame;
             KeyDown += OnKey;
             StateChanged += delegate { UpdateChrome(); };
             SourceInitialized += OnSourceInitialized;
-            Accounts.Ensure();
             UpdateChrome();
+            OpenApp();
         }
 
         static BitmapImage logoBmp;
@@ -396,7 +401,8 @@ namespace Nash
                 hero.Children.Add(Text(line, 13, Palette.Text, FontWeights.Normal, new Thickness(0, 3, 0, 0)));
             hero.Children.Add(Text("Versão de testes. O programa ainda não está pronto.", 12, Palette.Warn, FontWeights.Normal, new Thickness(0, 18, 0, 0)));
             var left = new Border { Background = Palette.Side, BorderBrush = Palette.Line, BorderThickness = new Thickness(0, 0, 1, 0), Padding = new Thickness(40, 36, 32, 36), Child = hero };
-            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Margin = new Thickness(36, 48, 40, 48), Padding = new Thickness(24), VerticalAlignment = VerticalAlignment.Center };
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Margin = new Thickness(36, 48, 40, 48), Padding = new Thickness(24), VerticalAlignment = VerticalAlignment.Center };
+            Round(card, 8);
             var form = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var seg = new Grid { Margin = new Thickness(0, 0, 0, 16) };
             seg.ColumnDefinitions.Add(new ColumnDefinition());
@@ -408,7 +414,7 @@ namespace Nash
             var title = Text("Entrar neste PC", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 6));
             var hint = Text("A conta fica só neste computador.", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 14));
             var name = Box();
-            var pass = new PasswordBox { Height = 34, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 70, 6), FontSize = 13, CaretBrush = Palette.Text };
+            var pass = new PasswordBox { Height = 34, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 70, 6), FontSize = 13, CaretBrush = Palette.Text, Template = InputTemplate(typeof(PasswordBox)) };
             var passShown = Box();
             passShown.Visibility = Visibility.Collapsed;
             var passHost = new Grid();
@@ -531,54 +537,32 @@ namespace Nash
         Grid BuildApp()
         {
             var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(216) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(SideW) });
             grid.ColumnDefinitions.Add(new ColumnDefinition());
             var side = new DockPanel { Background = Palette.Side };
-            var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(16, 16, 12, 14) };
-            brand.Children.Add(Logo(28));
-            var names = new StackPanel { Margin = new Thickness(10, 1, 0, 0) };
-            names.Children.Add(Text("Nash Boost", 14, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            names.Children.Add(Text("Windows 10 e 11", 11, Palette.Muted, FontWeights.Normal, new Thickness(0, 1, 0, 0)));
-            brand.Children.Add(names);
+            var brand = new StackPanel { Margin = new Thickness(18, 16, 16, 12) };
+            brand.Children.Add(Text("Windows 10 e 11", 11, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 8)));
+            var chip = new Border { BorderBrush = Palette.Warn, BorderThickness = new Thickness(1), Padding = new Thickness(6, 2, 6, 2), HorizontalAlignment = HorizontalAlignment.Left };
+            chip.Child = Text("VERSÃO DE TESTES", 10, Palette.Warn, FontWeights.SemiBold, new Thickness(0));
+            brand.Children.Add(chip);
             DockPanel.SetDock(brand, Dock.Top);
-            var foot = new StackPanel { Margin = new Thickness(18, 8, 12, 16) };
-            who = Text("", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 4));
-            var logout = Button("Sair", false);
-            logout.HorizontalAlignment = HorizontalAlignment.Left;
-            logout.Click += delegate
-            {
-                user = "";
-                app.Visibility = Visibility.Collapsed;
-                login.Visibility = Visibility.Visible;
-                SetChrome(false);
-            };
-            foot.Children.Add(who);
-            foot.Children.Add(logout);
-            foot.Children.Add(Text("v2.0.3", 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 8, 0, 0)));
-            foot.Children.Add(Text("versão de testes", 12, Palette.Warn, FontWeights.Normal, new Thickness(0, 2, 0, 0)));
+            var foot = new StackPanel { Margin = new Thickness(18, 8, 16, 16) };
+            who = Text("", 13, Palette.Muted, FontWeights.Normal, new Thickness(0));
+            foot.Children.Add(new Border { Height = 1, Background = Palette.Line, Margin = new Thickness(0, 0, 0, 12) });
+            foot.Children.Add(Text("Versão", 11, Palette.Muted, FontWeights.Normal, new Thickness(0)));
+            foot.Children.Add(Text("2.0.4", 14, Palette.Text, FontWeights.SemiBold, new Thickness(0, 2, 0, 0)));
             DockPanel.SetDock(foot, Dock.Bottom);
-            var menu = new StackPanel { Margin = new Thickness(8, 0, 8, 0) };
+            var menu = new StackPanel { Margin = new Thickness(10, 2, 10, 0) };
             foreach (var item in new[] {
-                new[] { "home", "Início" },
-                new[] { "jogo", "Jogo" },
-                new[] { "sistema", "Sistema" },
-                new[] { "limpeza", "Limpeza" },
-                new[] { "apps", "Aplicativos" },
-                new[] { "reparar", "Reparar" },
-                new[] { "conta", "Conta" } })
+                new[] { "home", "Início", "\uE80F" },
+                new[] { "jogo", "Jogo", "\uE7FC" },
+                new[] { "sistema", "Sistema", "\uE713" },
+                new[] { "limpeza", "Limpeza", "\uE74D" },
+                new[] { "apps", "Aplicativos", "\uE71D" },
+                new[] { "reparar", "Reparar", "\uE90F" } })
             {
-                var b = Button(item[1], false);
-                b.HorizontalContentAlignment = HorizontalAlignment.Left;
-                b.Background = Brushes.Transparent;
-                b.BorderThickness = new Thickness(2, 0, 0, 0);
-                b.BorderBrush = Brushes.Transparent;
-                b.Foreground = Palette.Muted;
-                b.FontWeight = FontWeights.Normal;
-                b.FontSize = 13;
-                b.Height = 34;
-                b.Padding = new Thickness(12, 0, 10, 0);
-                b.Margin = new Thickness(0);
                 var page = item[0];
+                var b = NavButton(item[1], item[2]);
                 b.Click += delegate { Navigate(page); };
                 nav[page] = b;
                 menu.Children.Add(b);
@@ -587,7 +571,7 @@ namespace Nash
             side.Children.Add(foot);
             side.Children.Add(menu);
             var sideHost = new Border { Background = Palette.Side, BorderBrush = Palette.Line, BorderThickness = new Thickness(0, 0, 1, 0), Child = side };
-            var host = new PageScroll(new Thickness(22, 16, 18, 22), Palette.Bg);
+            var host = new PageScroll(new Thickness(28, 22, 24, 28), Palette.Bg);
             host.Content = new Grid();
             Grid.SetColumn(host, 1);
             grid.Children.Add(sideHost);
@@ -596,15 +580,67 @@ namespace Nash
             return grid;
         }
 
+        Button NavButton(string label, string glyph)
+        {
+            var icon = new TextBlock
+            {
+                Text = glyph,
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 15,
+                Width = 22,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            var caption = new TextBlock { Text = label, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(icon);
+            row.Children.Add(caption);
+            var b = new Button
+            {
+                Content = row,
+                Height = 36,
+                Margin = new Thickness(8, 2, 8, 2),
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Background = Brushes.Transparent,
+                Foreground = Palette.Muted,
+                BorderBrush = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(12, 0, 10, 0),
+                FontWeight = FontWeights.Normal,
+                Cursor = Cursors.Hand,
+                Focusable = false,
+                Tag = "off",
+                Template = Flat()
+            };
+            b.MouseEnter += delegate { if ((string)b.Tag != "on") b.Background = Palette.Card; };
+            b.MouseLeave += delegate { if ((string)b.Tag != "on") b.Background = Brushes.Transparent; };
+            return b;
+        }
+
         void Enter(string name)
         {
             user = name;
-            who.Text = name;
+            if (who != null) who.Text = name;
+            OpenApp();
+        }
+
+        void OpenApp()
+        {
             login.Visibility = Visibility.Collapsed;
             app.Visibility = Visibility.Visible;
             SetChrome(true);
             Navigate("home");
-            RefreshStatus();
+        }
+
+        static string PageTitle(string page)
+        {
+            if (page == "home") return "Início";
+            if (page == "jogo") return "Jogo";
+            if (page == "sistema") return "Sistema";
+            if (page == "limpeza") return "Limpeza";
+            if (page == "apps") return "Aplicativos";
+            if (page == "reparar") return "Reparar";
+            return "Nash Boost";
         }
 
         void Navigate(string page)
@@ -612,11 +648,13 @@ namespace Nash
             foreach (var pair in nav)
             {
                 var on = pair.Key == page;
+                pair.Value.Tag = on ? "on" : "off";
                 pair.Value.Background = on ? Palette.Card2 : Brushes.Transparent;
-                pair.Value.Foreground = on ? Palette.Text : Palette.Muted;
+                pair.Value.Foreground = on ? Palette.Ink : Palette.Muted;
                 pair.Value.BorderBrush = on ? Palette.Accent : Brushes.Transparent;
                 pair.Value.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
             }
+            if (captionTitle != null) captionTitle.Text = PageTitle(page);
             UIElement view;
             if (!pages.TryGetValue(page, out view))
             {
@@ -638,30 +676,40 @@ namespace Nash
         UIElement PageHome()
         {
             var root = new StackPanel();
-            hello = Text("Veja o estado do PC e aplique o pacote recomendado.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 16));
-            root.Children.Add(Text("Início", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("Versão de testes. O programa ainda não está pronto.", 13, Palette.Warn, FontWeights.Normal, new Thickness(0, 4, 0, 0)));
-            root.Children.Add(hello);
-            var stats = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 16) };
-            winText = Stat(stats, "Windows");
-            ramText = Stat(stats, "Memória");
-            gpuText = Stat(stats, "Placa de vídeo");
-            cpuText = Stat(stats, "Processador");
-            root.Children.Add(stats);
+            var head = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
+            head.Children.Add(Text("Início", 22, Palette.Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 4)));
+            head.Children.Add(Text("O pacote recomendado fica aqui. Nas outras abas, nada começa marcado.", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 4)));
+            hello = Text("Lendo este PC.", 13, Palette.Text, FontWeights.Normal, new Thickness(0));
+            head.Children.Add(hello);
+            head.Children.Add(new Border { Height = 1, Background = Palette.Line, Margin = new Thickness(0, 14, 0, 0) });
+            root.Children.Add(head);
+            var notice = new Border { Background = Palette.WarnBg, BorderBrush = Palette.Warn, BorderThickness = new Thickness(1), Padding = new Thickness(12, 9, 12, 9), Margin = new Thickness(0, 0, 0, 16) };
+            Round(notice, 6);
+            notice.Child = Text("Versão de testes. O programa ainda não está pronto. Crie um ponto de restauração antes de aplicar.", 12, Palette.Warn, FontWeights.Normal, new Thickness(0));
+            root.Children.Add(notice);
+            TextBlock[] stats;
+            root.Children.Add(MetricStrip(new[] { "Windows", "Memória", "Placa de vídeo", "Processador" }, out stats));
+            winText = stats[0];
+            ramText = stats[1];
+            gpuText = stats[2];
+            cpuText = stats[3];
             var row = new Grid();
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.8, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.85, GridUnitType.Star) });
             var hero = Card();
-            hero.Padding = new Thickness(16, 14, 16, 16);
+            hero.BorderBrush = Palette.Accent;
+            hero.BorderThickness = new Thickness(1);
+            hero.Padding = new Thickness(18, 16, 18, 16);
             var heroStack = new StackPanel();
-            heroStack.Children.Add(Text("Pacote recomendado", 12, Palette.Muted, FontWeights.SemiBold, new Thickness(0, 0, 0, 6)));
-            heroStack.Children.Add(Text("Otimizar em 1 clique", 18, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
-            heroStack.Children.Add(Text("Mouse, teclado, USB, Game Bar, energia, rede, telemetria, interface, apps em segundo plano e prioridade do CS2 e do FiveM. Cria um ponto de restauração antes. A GPU acelerada fica de fora.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 10)));
+            heroStack.Children.Add(Text("PACOTE RECOMENDADO", 11, Palette.Accent, FontWeights.SemiBold, new Thickness(0, 0, 0, 6)));
+            heroStack.Children.Add(Text("Otimizar em 1 clique", 20, Palette.Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+            heroStack.Children.Add(Text("Mouse, teclado, USB, Game Bar, energia, rede, telemetria, interface, apps em segundo plano e prioridade do CS2 e do FiveM. Cria um ponto de restauração antes. A GPU acelerada fica de fora.", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 12)));
             foreach (var line in new[] { "Não remove seus programas, o Edge nem o OneDrive.", "Não mexe na integridade de memória. O Valorant precisa dela ligada.", "Não esvazia a RAM." })
-                heroStack.Children.Add(Text("–  " + line, 14, Palette.Text, FontWeights.Normal, new Thickness(0, 3, 0, 0)));
+                heroStack.Children.Add(Bullet(line));
             var go = Button("Otimizar agora", true);
             go.HorizontalAlignment = HorizontalAlignment.Left;
+            go.MinWidth = 160;
             go.Margin = new Thickness(0, 16, 0, 0);
             go.Click += async delegate
             {
@@ -671,9 +719,10 @@ namespace Nash
             heroStack.Children.Add(go);
             hero.Child = heroStack;
             var state = Card();
-            state.Padding = new Thickness(16, 14, 16, 14);
+            state.Padding = new Thickness(16, 16, 16, 14);
             var stateStack = new StackPanel();
-            stateStack.Children.Add(Text("Estado atual", 16, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+            stateStack.Children.Add(Text("NESTE PC", 11, Palette.Muted, FontWeights.SemiBold, new Thickness(0, 0, 0, 4)));
+            stateStack.Children.Add(Text("Estado atual", 16, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 12)));
             flags = new StackPanel();
             stateStack.Children.Add(flags);
             state.Child = stateStack;
@@ -687,14 +736,13 @@ namespace Nash
         UIElement PageJogo()
         {
             var root = new StackPanel();
-            root.Children.Add(Text("Jogo", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("O que muda na mira, no teclado, na placa e no Valorant. Nada começa marcado. Os números acima são lidos do Windows.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
-            var meters = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 14) };
-            jogoMouse = Meter(meters, "Mouse");
-            jogoKey = Meter(meters, "Teclado");
-            jogoUsb = Meter(meters, "USB");
-            jogoMem = Meter(meters, "Integridade");
-            root.Children.Add(meters);
+            root.Children.Add(PageHead("Jogo", "O que muda na mira, no teclado, na placa e no Valorant. Nada começa marcado. Os números acima são lidos do Windows."));
+            TextBlock[] meters;
+            root.Children.Add(MetricStrip(new[] { "Mouse", "Teclado", "USB", "Integridade" }, out meters));
+            jogoMouse = meters[0];
+            jogoKey = meters[1];
+            jogoUsb = meters[2];
+            jogoMem = meters[3];
             var card = Card();
             var list = new StackPanel();
             list.Children.Add(Row("Aceleração do mouse", "Desliga a aceleração e deixa a curva reta na escala desta tela. O ponteiro vai para a marca do meio.", game, "mouse", false, null));
@@ -727,8 +775,7 @@ namespace Nash
         UIElement PageSistema()
         {
             var root = new StackPanel();
-            root.Children.Add(Text("Sistema", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("Energia, o que o Windows coleta e o peso da interface. Nada começa marcado. Antivírus e Windows Update continuam ligados.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
+            root.Children.Add(PageHead("Sistema", "Energia, o que o Windows coleta e o peso da interface. Nada começa marcado. Antivírus e Windows Update continuam ligados."));
             var card = Card();
             var list = new StackPanel();
             list.Children.Add(Row("Energia para jogos", "Plano equilibrado no modo Melhor desempenho. A CPU não fica presa em 100%, e o programa da frente tem prioridade.", system, "power", false, null));
@@ -755,23 +802,22 @@ namespace Nash
         UIElement PageLimpeza()
         {
             var root = new StackPanel();
-            root.Children.Add(Text("Limpeza", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("Nada começa marcado. Marque só o que quer apagar.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 0)));
-            lastClean = Text("Última limpeza: ainda não foi feita por aqui.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14));
+            root.Children.Add(PageHead("Limpeza", "Nada começa marcado. Isso libera espaço ou RAM. Não sobe FPS sozinho."));
+            lastClean = Text("Última limpeza: ainda não foi feita por aqui.", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 12));
             root.Children.Add(lastClean);
             var card = Card();
             var list = new StackPanel();
+            list.Children.Add(GroupLabel("Espaço em disco"));
             list.Children.Add(Row("Arquivos temporários", "Remove temporários do Windows e do usuário.", clean, "temp", false, null));
             list.Children.Add(Row("Lixeira", "Apaga o que está na lixeira de todas as unidades.", clean, "recycle", false, null));
             list.Children.Add(Row("Cache do Windows Update", "Remove instaladores já baixados. A atualização continua.", clean, "wu", false, null));
             list.Children.Add(Row("Miniaturas", "As miniaturas do Explorador são recriadas depois.", clean, "thumbs", false, null));
-            list.Children.Add(Row("Prefetch", "Deixa a próxima abertura de programas mais lenta. Não aumenta FPS.", clean, "prefetch", false, "Não recomendado"));
             list.Children.Add(Row("Logs do Valorant", "Apaga logs e crashes. Configuração e sensibilidade ficam.", clean, "valorant", false, null));
             list.Children.Add(Row("Cache do FiveM", "Use se o FiveM estiver travando. A próxima entrada baixa os arquivos de novo.", clean, "fivem", false, "Redownload"));
-            list.Children.Add(Row("Cache de shaders", "Apaga o cache da placa. A próxima partida pode engasgar enquanto os shaders são recriados.", clean, "shaders", false, "Recria"));
             list.Children.Add(Row("Vídeos do Game Bar", "Apaga os clipes gravados na pasta Vídeos. Não mexe em outras pastas.", clean, "captures", false, null));
+            list.Children.Add(GroupLabel("Memória"));
             list.Children.Add(Row("Preparar para jogar", "Fecha papel de parede animado, se estiver aberto, e libera memória no modo suave. Não fecha launcher, Spotify, navegador, Discord, Steam nem o jogo.", clean, "play", false, null));
-            list.Children.Add(Row("Limpar memória, modo suave", "Fecha coisa inútil em segundo plano e libera memória. Jogo, navegador, Discord, Steam e Valorant ficam. Dá para usar com o jogo aberto.", clean, "ram", false, null));
+            list.Children.Add(Row("Limpar memória, modo suave", "Igual ao limpador antigo: fecha só programa inútil e solta a memória do resto. O que está na frente fica, junto com Valorant, CS2, FiveM, GTA, anti-cheat, Discord, Steam e OBS.", clean, "ram", false, null));
             list.Children.Add(Row("Limpar memória, modo completo", "Libera o cache todo. Pode engasgar um instante.", clean, "ramfull", false, "Pode engasgar"));
             list.Children.Add(Row("Atalho CTRL+ALT+R", "Cria um atalho na área de trabalho. O atalho de teclado limpa no modo suave, sem abrir a janela, inclusive dentro do jogo.", clean, "ramkey", false, null));
             card.Child = list;
@@ -798,34 +844,45 @@ namespace Nash
         UIElement PageApps()
         {
             var root = new StackPanel();
-            root.Children.Add(Text("Aplicativos", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("O que o Windows colocou sozinho, e os programas que abrem junto com o PC. Nada começa marcado. Spotify, Discord, Steam, a Loja, o Paint e o Game Bar não entram na remoção.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 12)));
-            appSummary = Text("Lendo os aplicativos deste PC…", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 12));
+            root.Children.Add(PageHead("Aplicativos", "O que o Windows colocou sozinho, e os programas que abrem junto com o PC. Nada começa marcado. Spotify, Discord, Steam, a Loja, o Paint e o Game Bar não entram na remoção."));
+            appSummary = Text("Lendo os aplicativos deste PC…", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 14));
             root.Children.Add(appSummary);
-            root.Children.Add(Text("Instalados agora", 13, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+            root.Children.Add(Section("Instalados agora"));
             var installed = Card();
             installedHost = new StackPanel();
             installedHost.Children.Add(Text("Lendo…", 14, Palette.Muted, FontWeights.Normal, new Thickness(0)));
             installed.Child = installedHost;
             root.Children.Add(installed);
-            var oneRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 16) };
+            var oneRow = new StackPanel { Orientation = Orientation.Horizontal };
             onedrive = new SwitchBox(false);
             oneRow.Children.Add(onedrive);
-            oneRow.Children.Add(Text("Remover o OneDrive também. Não apaga arquivos que já estão na pasta.", 14, Palette.Text, FontWeights.Normal, new Thickness(12, 4, 0, 0)));
-            root.Children.Add(oneRow);
-            root.Children.Add(Text("Abrem com o Windows", 13, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+            oneRow.Children.Add(Text("Remover o OneDrive também. Não apaga arquivos que já estão na pasta.", 13, Palette.Text, FontWeights.Normal, new Thickness(12, 1, 0, 0)));
+            var oneHost = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 10, 0, 18), Child = oneRow };
+            Round(oneHost, 8);
+            root.Children.Add(oneHost);
+            root.Children.Add(Section("Abrem com o Windows"));
             root.Children.Add(Text("Desligar tira o programa da inicialização. Ele continua instalado. Antivírus e o teclado do Windows ficam protegidos.", 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 8)));
             var startup = Card();
             startupHost = new StackPanel();
             startupHost.Children.Add(Text("Lendo…", 14, Palette.Muted, FontWeights.Normal, new Thickness(0)));
             startup.Child = startupHost;
             root.Children.Add(startup);
-            var fold = new Expander { Header = "Lista completa do que pode ser removido", Foreground = Palette.Muted, Margin = new Thickness(0, 14, 0, 0) };
             var catalog = Card();
+            catalog.Margin = new Thickness(0, 8, 0, 0);
+            catalog.Visibility = Visibility.Collapsed;
             catalogHost = new StackPanel();
             catalog.Child = catalogHost;
-            fold.Content = catalog;
+            var fold = Button("Mostrar lista completa", false);
+            fold.HorizontalAlignment = HorizontalAlignment.Left;
+            fold.Margin = new Thickness(0, 14, 0, 0);
+            fold.Click += delegate
+            {
+                var open = catalog.Visibility != Visibility.Visible;
+                catalog.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                fold.Content = open ? "Ocultar lista completa" : "Mostrar lista completa";
+            };
             root.Children.Add(fold);
+            root.Children.Add(catalog);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
             var reload = Button("Atualizar", false);
             reload.Margin = new Thickness(0, 0, 8, 0);
@@ -865,8 +922,7 @@ namespace Nash
         UIElement PageReparar()
         {
             var root = new StackPanel();
-            root.Children.Add(Text("Reparar", 20, Palette.Text, FontWeights.SemiBold, new Thickness(0)));
-            root.Children.Add(Text("Desfaz o que a versão antiga piorava e guarda um ponto antes de mudanças grandes.", 14, Palette.Muted, FontWeights.Normal, new Thickness(0, 4, 0, 14)));
+            root.Children.Add(PageHead("Reparar", "Desfaz o que a versão antiga piorava e guarda um ponto antes de mudanças grandes."));
             root.Children.Add(ActionCard("Ponto de restauração", "Crie antes de qualquer mudança grande. O 1 clique também tenta criar um.", "Criar agora", async delegate
             {
                 await Run("Restauração", "Criando o ponto de restauração.", () => Tweaks.RestorePoint());
@@ -884,7 +940,7 @@ namespace Nash
                 if (!await Ask("Ligar a integridade de memória?", "O Valorant precisa dela. O PC deve ser reiniciado depois.", new string[0], "Ligar", false)) return;
                 await Run("Integridade de memória", "Marcando a proteção para ligar.", () => Tweaks.Memory(true));
             }, true));
-            root.Children.Add(Text("Avançado", 13, Palette.Warn, FontWeights.SemiBold, new Thickness(0, 8, 0, 8)));
+            root.Children.Add(Text("AVANÇADO", 11, Palette.Warn, FontWeights.SemiBold, new Thickness(0, 8, 0, 8)));
             var advanced = new Dictionary<string, SwitchBox>();
             var card = Card();
             var list = new StackPanel();
@@ -923,8 +979,8 @@ namespace Nash
             row.ColumnDefinitions.Add(new ColumnDefinition());
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var oldPass = new PasswordBox { Height = 34, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 8, 6), CaretBrush = Palette.Text };
-            var newPass = new PasswordBox { Height = 34, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 8, 6), CaretBrush = Palette.Text };
+            var oldPass = new PasswordBox { Height = 34, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 8, 6), CaretBrush = Palette.Text, Template = InputTemplate(typeof(PasswordBox)) };
+            var newPass = new PasswordBox { Height = 34, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 8, 6), CaretBrush = Palette.Text, Template = InputTemplate(typeof(PasswordBox)) };
             var change = Button("Trocar senha", false);
             change.Click += delegate
             {
@@ -978,11 +1034,27 @@ namespace Nash
             PcStatus status = null;
             await Task.Run(() => { try { status = Tweaks.ReadStatus(); } catch { } });
             if (status == null) return;
+            var captured = status;
+#pragma warning disable 4014
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                try { PaintStatus(captured); }
+                catch { }
+            }));
+#pragma warning restore 4014
+        }
+
+        void PaintStatus(PcStatus status)
+        {
             if (winText != null) { winText.Text = status.Windows; winText.ToolTip = status.Windows; }
             if (ramText != null) { ramText.Text = status.Ram; ramText.ToolTip = status.Ram; }
             if (gpuText != null) { gpuText.Text = string.IsNullOrEmpty(status.Gpu) ? "—" : status.Gpu; gpuText.ToolTip = gpuText.Text; }
             if (cpuText != null) { cpuText.Text = string.IsNullOrEmpty(status.Cpu) ? "—" : status.Cpu; cpuText.ToolTip = cpuText.Text; }
-            if (hello != null) hello.Text = "Olá, " + user + ". " + (status.Admin ? "Pronto para aplicar." : "Abra de novo para aceitar o pedido de administrador.");
+            if (hello != null)
+            {
+                var ready = status.Admin ? "Pronto para aplicar." : "Abra de novo e aceite o pedido de administrador.";
+                hello.Text = string.IsNullOrEmpty(user) ? ready : "Olá, " + user + ". " + ready;
+            }
             if (lastClean != null) lastClean.Text = string.IsNullOrEmpty(status.LastClean) ? "Última limpeza: ainda não foi feita por aqui." : "Última limpeza: " + status.LastClean;
             if (flags != null)
             {
@@ -1197,7 +1269,8 @@ namespace Nash
         Grid BuildBusy()
         {
             var grid = new Grid { Background = new SolidColorBrush(Color.FromArgb(160, 10, 10, 12)), Visibility = Visibility.Collapsed };
-            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(22), Width = 420, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Accent, BorderThickness = new Thickness(1), Padding = new Thickness(22, 18, 22, 20), Width = 440, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            Round(card, 8);
             var stack = new StackPanel();
             stack.Children.Add(new ProgressBar { IsIndeterminate = true, Height = 3, Margin = new Thickness(0, 0, 0, 14), Foreground = Palette.Accent, Background = Palette.Card2, BorderThickness = new Thickness(0) });
             busyTitle = Text("Aplicando", 18, Palette.Text, FontWeights.SemiBold, new Thickness(0, 0, 0, 6));
@@ -1212,7 +1285,8 @@ namespace Nash
         Grid BuildModal()
         {
             var grid = new Grid { Background = new SolidColorBrush(Color.FromArgb(160, 10, 10, 12)), Visibility = Visibility.Collapsed };
-            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(20), Width = 520, MaxHeight = 560, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(22, 18, 22, 18), Width = 520, MaxHeight = 560, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            Round(card, 8);
             var stack = new DockPanel();
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
             modalCancel = Button("Cancelar", false);
@@ -1244,7 +1318,8 @@ namespace Nash
 
         void Toast(string text)
         {
-            var item = new Border { Background = Palette.Card2, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 6, 0, 0), MaxWidth = 360, Child = Text(text, 13, Palette.Text, FontWeights.Normal, new Thickness(0)) };
+            var item = new Border { Background = Palette.Card2, BorderBrush = Palette.Accent, BorderThickness = new Thickness(1), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 6, 0, 0), MaxWidth = 380, Child = Text(text, 13, Palette.Text, FontWeights.Normal, new Thickness(0)) };
+            Round(item, 6);
             toasts.Children.Add(item);
             var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
             timer.Tick += delegate { timer.Stop(); toasts.Children.Remove(item); };
@@ -1265,53 +1340,125 @@ namespace Nash
                 { "ui", "Interface mais leve" }, { "background", "Apps em segundo plano" }, { "sysmain", "SysMain no Windows 10" }, { "mpo", "Corrigir engasgo da imagem" },
                 { "mem", "Desligar integridade de memória" }, { "edge", "Remover o Edge" },
                 { "temp", "Arquivos temporários" }, { "recycle", "Lixeira" }, { "wu", "Cache do Windows Update" },
-                { "thumbs", "Miniaturas" }, { "prefetch", "Prefetch" }, { "valorant", "Logs do Valorant" }, { "fivem", "Cache do FiveM" },
-                { "shaders", "Cache de shaders" }, { "captures", "Vídeos do Game Bar" },
+                { "thumbs", "Miniaturas" }, { "valorant", "Logs do Valorant" }, { "fivem", "Cache do FiveM" },
+                { "captures", "Vídeos do Game Bar" },
                 { "ram", "Limpar memória, modo suave" }, { "ramfull", "Limpar memória, modo completo" }, { "ramkey", "Atalho CTRL+ALT+R" },
                 { "play", "Preparar para jogar" }
             };
             return ids.Select(id => map.ContainsKey(id) ? map[id] : id).ToList();
         }
 
-        static TextBlock Stat(Panel parent, string caption)
+        static StackPanel PageHead(string title, string sub)
         {
-            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(10, 8, 10, 8), Margin = new Thickness(0, 0, 8, 0) };
-            var stack = new StackPanel();
-            stack.Children.Add(Text(caption, 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 4)));
-            var value = Text("…", 13, Palette.Text, FontWeights.SemiBold, new Thickness(0));
-            value.TextWrapping = TextWrapping.NoWrap;
-            value.TextTrimming = TextTrimming.CharacterEllipsis;
-            stack.Children.Add(value);
-            card.Child = stack;
-            parent.Children.Add(card);
-            return value;
+            var head = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
+            head.Children.Add(Text(title, 22, Palette.Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 4)));
+            if (!string.IsNullOrEmpty(sub))
+                head.Children.Add(Text(sub, 13, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 12)));
+            head.Children.Add(new Border { Height = 1, Background = Palette.Line });
+            return head;
         }
 
-        static TextBlock Meter(Panel parent, string caption)
+        static TextBlock Section(string title)
         {
-            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(10, 8, 10, 8), Margin = new Thickness(0, 0, 8, 0) };
-            var stack = new StackPanel();
-            stack.Children.Add(Text(caption, 12, Palette.Muted, FontWeights.Normal, new Thickness(0, 0, 0, 4)));
-            var value = Text("Lendo", 14, Palette.Text, FontWeights.SemiBold, new Thickness(0));
-            stack.Children.Add(value);
-            card.Child = stack;
-            parent.Children.Add(card);
-            return value;
+            return Text(title.ToUpperInvariant(), 11, Palette.Muted, FontWeights.SemiBold, new Thickness(0, 2, 0, 8));
+        }
+
+        static StackPanel Bullet(string line)
+        {
+            var item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 7, 0, 0) };
+            item.Children.Add(new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), Background = Palette.Accent, Margin = new Thickness(0, 5, 10, 0), VerticalAlignment = VerticalAlignment.Top });
+            item.Children.Add(Text(line, 13, Palette.Text, FontWeights.Normal, new Thickness(0)));
+            return item;
+        }
+
+        static Border GroupLabel(string title)
+        {
+            var row = new DockPanel { Margin = new Thickness(14, 10, 14, 8) };
+            var mark = new Border { Width = 3, Height = 12, CornerRadius = new CornerRadius(1.5), Background = Palette.Accent, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            DockPanel.SetDock(mark, Dock.Left);
+            row.Children.Add(mark);
+            row.Children.Add(Text(title.ToUpperInvariant(), 11, Palette.Muted, FontWeights.SemiBold, new Thickness(0, 1, 0, 0)));
+            return new Border { Background = Palette.Side, BorderBrush = Palette.Line, BorderThickness = new Thickness(0, 0, 0, 1), Child = row };
+        }
+
+        static Border MetricStrip(string[] captions, out TextBlock[] values)
+        {
+            var grid = new UniformGrid { Columns = captions.Length };
+            values = new TextBlock[captions.Length];
+            for (var i = 0; i < captions.Length; i++)
+            {
+                var cell = new Border
+                {
+                    Padding = new Thickness(14, 12, 12, 12),
+                    BorderBrush = Palette.Line,
+                    BorderThickness = i == captions.Length - 1 ? new Thickness(0) : new Thickness(0, 0, 1, 0)
+                };
+                var stack = new StackPanel();
+                stack.Children.Add(Text(captions[i].ToUpperInvariant(), 11, Palette.Muted, FontWeights.SemiBold, new Thickness(0, 0, 0, 6)));
+                var value = Text("…", 14, Palette.Ink, FontWeights.SemiBold, new Thickness(0));
+                value.TextWrapping = TextWrapping.NoWrap;
+                value.TextTrimming = TextTrimming.CharacterEllipsis;
+                stack.Children.Add(value);
+                cell.Child = stack;
+                grid.Children.Add(cell);
+                values[i] = value;
+            }
+            var strip = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 16), Child = grid };
+            Round(strip, 8);
+            return strip;
         }
 
         static void Flag(Panel parent, string name, bool ok, string on, string off)
         {
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-            var label = Text(ok ? on : off, 12, ok ? Palette.Text : Palette.Muted, FontWeights.Normal, new Thickness(0, 1, 0, 0));
-            DockPanel.SetDock(label, Dock.Right);
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var mark = new Border { Width = 7, Height = 7, CornerRadius = new CornerRadius(4), Background = ok ? Palette.Accent : Palette.Line, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
+            var label = Text(name, 13, Palette.Text, FontWeights.Normal, new Thickness(0));
+            var state = Text(ok ? on : off, 12, ok ? Palette.Ink : Palette.Muted, FontWeights.SemiBold, new Thickness(8, 0, 0, 0));
+            Grid.SetColumn(label, 1);
+            Grid.SetColumn(state, 2);
+            row.Children.Add(mark);
             row.Children.Add(label);
-            row.Children.Add(Text(name, 13, Palette.Text, FontWeights.Normal, new Thickness(0, 1, 8, 0)));
+            row.Children.Add(state);
             parent.Children.Add(row);
         }
 
         static Border Card()
         {
-            return new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(4, 2, 4, 2) };
+            var card = new Border { Background = Palette.Card, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(0) };
+            Round(card, 8);
+            return card;
+        }
+
+        static void Round(Border border, double radius)
+        {
+            border.CornerRadius = new CornerRadius(radius);
+            border.SizeChanged += delegate { ApplyClip(border); };
+        }
+
+        static void ApplyClip(Border border)
+        {
+            if (border == null || border.ActualWidth <= 0 || border.ActualHeight <= 0) return;
+            var radius = border.CornerRadius.TopLeft;
+            border.Clip = radius <= 0 ? null : new RectangleGeometry(new Rect(0, 0, border.ActualWidth, border.ActualHeight), radius, radius);
+        }
+
+        static ControlTemplate InputTemplate(Type type)
+        {
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+            border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+            border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+            border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+            var host = new FrameworkElementFactory(typeof(ScrollViewer));
+            host.Name = "PART_ContentHost";
+            border.AppendChild(host);
+            var template = new ControlTemplate(type);
+            template.VisualTree = border;
+            return template;
         }
 
         static Border Row(string title, string desc, Dictionary<string, SwitchBox> map, string id, bool on, string badge)
@@ -1323,7 +1470,7 @@ namespace Nash
 
         static Border InfoRow(string title, string desc, string badge, FrameworkElement right, bool singleLine = false)
         {
-            var grid = new Grid { Margin = new Thickness(10, 8, 10, 8) };
+            var grid = new Grid { Margin = new Thickness(14, 11, 14, 11) };
             grid.ColumnDefinitions.Add(new ColumnDefinition());
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var text = new StackPanel();
@@ -1332,7 +1479,7 @@ namespace Nash
             if (!string.IsNullOrEmpty(badge))
             {
                 var caution = badge == "Cuidado" || badge == "Não recomendado" || badge == "Redownload" || badge == "Recria" || badge == "Só se engasgar" || badge == "Pode engasgar" || badge == "Teste";
-                var pill = new Border { Background = caution ? Palette.WarnBg : Brushes.Transparent, BorderBrush = caution ? Palette.Warn : Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(6, 1, 6, 1), VerticalAlignment = VerticalAlignment.Center };
+                var pill = new Border { Background = caution ? Palette.WarnBg : Brushes.Transparent, BorderBrush = caution ? Palette.Warn : Palette.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 1, 8, 1), VerticalAlignment = VerticalAlignment.Center };
                 pill.Child = Text(badge, 11, caution ? Palette.Warn : Palette.Muted, FontWeights.Normal, new Thickness(0));
                 head.Children.Add(pill);
             }
@@ -1355,7 +1502,10 @@ namespace Nash
                 grid.Children.Add(right);
             }
             grid.Children.Add(text);
-            return new Border { BorderBrush = Palette.Line, BorderThickness = new Thickness(0, 0, 0, 1), Child = grid };
+            var shell = new Border { BorderBrush = Palette.Line, BorderThickness = new Thickness(0, 0, 0, 1), Background = Brushes.Transparent, Child = grid };
+            shell.MouseEnter += delegate { shell.Background = Palette.Card2; };
+            shell.MouseLeave += delegate { shell.Background = Brushes.Transparent; };
+            return shell;
         }
 
         UIElement ActionCard(string title, string desc, string button, System.Action click, bool primary = false)
@@ -1386,7 +1536,7 @@ namespace Nash
 
         static TextBox Box()
         {
-            return new TextBox { Height = 34, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 8, 6), FontSize = 13, CaretBrush = Palette.Text, Margin = new Thickness(0, 0, 0, 10) };
+            return new TextBox { Height = 34, Background = Palette.Field, Foreground = Palette.Text, BorderBrush = Palette.Line, BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 8, 6), FontSize = 13, CaretBrush = Palette.Text, Margin = new Thickness(0, 0, 0, 10), Template = InputTemplate(typeof(TextBox)) };
         }
 
         static TextBlock Text(string value, double size, Brush color, FontWeight weight, Thickness margin)
@@ -1399,17 +1549,26 @@ namespace Nash
             var button = new Button
             {
                 Content = text,
-                Height = 32,
-                Padding = new Thickness(12, 0, 12, 0),
+                Height = 36,
+                Padding = new Thickness(16, 0, 16, 0),
                 Margin = new Thickness(0),
                 Background = primary ? Palette.Accent : Brushes.Transparent,
                 Foreground = primary ? Palette.Ink : Palette.Text,
                 BorderBrush = primary ? Palette.Accent : Palette.Line,
                 BorderThickness = new Thickness(1),
                 FontSize = 13,
-                FontWeight = FontWeights.Normal,
+                FontWeight = primary ? FontWeights.SemiBold : FontWeights.Normal,
                 Cursor = Cursors.Hand,
                 Template = Flat()
+            };
+            button.MouseEnter += delegate
+            {
+                button.Background = primary ? Palette.AccentHot : Palette.Card2;
+            };
+            button.MouseLeave += delegate
+            {
+                button.Background = primary ? Palette.Accent : Brushes.Transparent;
+                button.BorderBrush = primary ? Palette.Accent : Palette.Line;
             };
             return button;
         }
@@ -1420,10 +1579,10 @@ namespace Nash
             border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
             border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
             border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
-            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(2));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
             border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
             var content = new FrameworkElementFactory(typeof(ContentPresenter));
-            content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            content.SetValue(FrameworkElement.HorizontalAlignmentProperty, new TemplateBindingExtension(Control.HorizontalContentAlignmentProperty));
             content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
             border.AppendChild(content);
             var template = new ControlTemplate(typeof(Button));
@@ -1435,15 +1594,22 @@ namespace Nash
 
         Grid BuildCaption()
         {
-            var bar = new Grid { Height = 40 };
+            var bar = new Grid { Height = 41 };
+            bar.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
+            bar.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1) });
             captionCol = new ColumnDefinition { Width = new GridLength(0) };
             bar.ColumnDefinitions.Add(captionCol);
             bar.ColumnDefinitions.Add(new ColumnDefinition());
             captionSide = new Border { Background = Palette.Side, BorderBrush = Palette.Line };
+            var word = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0), IsHitTestVisible = false };
+            word.Children.Add(Logo(18));
+            word.Children.Add(Text("Nash Boost", 13, Palette.Ink, FontWeights.SemiBold, new Thickness(8, 0, 0, 0)));
+            captionSide.Child = word;
             var main = new Border { Background = Palette.Bg };
             Grid.SetColumn(main, 1);
             var mainGrid = new Grid();
-            mainGrid.Children.Add(new TextBlock { Text = "Nash Boost", FontFamily = new FontFamily("Segoe UI"), FontSize = 12, Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), IsHitTestVisible = false });
+            captionTitle = new TextBlock { Text = "Nash Boost", FontFamily = new FontFamily("Segoe UI"), FontSize = 12, Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0), IsHitTestVisible = false };
+            mainGrid.Children.Add(captionTitle);
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
             var min = ChromeButton("\uE921", false);
             System.Windows.Automation.AutomationProperties.SetName(min, "Minimizar");
@@ -1462,19 +1628,29 @@ namespace Nash
             main.Child = mainGrid;
             bar.Children.Add(captionSide);
             bar.Children.Add(main);
+            var rule = new Border { Background = Palette.Line };
+            Grid.SetRow(rule, 1);
+            Grid.SetColumnSpan(rule, 2);
+            bar.Children.Add(rule);
             return bar;
         }
 
         void SetChrome(bool loggedIn)
         {
-            captionCol.Width = loggedIn ? new GridLength(216) : new GridLength(0);
+            captionCol.Width = loggedIn ? new GridLength(SideW) : new GridLength(0);
             if (captionSide != null) captionSide.BorderThickness = loggedIn ? new Thickness(0, 0, 1, 0) : new Thickness(0);
         }
 
         void UpdateChrome()
         {
-            if (maxGlyph != null) maxGlyph.Text = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
-            if (frame != null) frame.BorderThickness = new Thickness(WindowState == WindowState.Maximized ? 0 : 1);
+            var maxed = WindowState == WindowState.Maximized;
+            if (maxGlyph != null) maxGlyph.Text = maxed ? "\uE923" : "\uE922";
+            var chrome = WindowChrome.GetWindowChrome(this);
+            if (chrome != null) chrome.CornerRadius = new CornerRadius(maxed ? 0 : 8);
+            if (frame == null) return;
+            frame.BorderThickness = new Thickness(maxed ? 0 : 1);
+            frame.CornerRadius = new CornerRadius(maxed ? 0 : 8);
+            ApplyClip(frame);
         }
 
         Button ChromeButton(string glyph, bool close)
@@ -1510,7 +1686,7 @@ namespace Nash
         {
             var border = new FrameworkElementFactory(typeof(Border));
             border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
-            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(0));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
             var content = new FrameworkElementFactory(typeof(ContentPresenter));
             content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
             content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
@@ -1527,7 +1703,7 @@ namespace Nash
             var hwnd = new WindowInteropHelper(this).Handle;
             var corner = 2;
             DwmSetWindowAttribute(hwnd, 33, ref corner, 4);
-            var color = 0x00221F1E;
+            var color = 0x001E1A18;
             DwmSetWindowAttribute(hwnd, 34, ref color, 4);
             DwmSetWindowAttribute(hwnd, 35, ref color, 4);
         }

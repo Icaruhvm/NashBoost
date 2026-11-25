@@ -940,18 +940,6 @@ namespace Nash
                     catch { }
                 r.Add("Miniaturas limpas.");
             }
-            if (set.Contains("prefetch"))
-            {
-                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch");
-                if (Directory.Exists(dir))
-                    try
-                    {
-                        foreach (var file in Directory.GetFiles(dir, "*.pf"))
-                            try { File.Delete(file); } catch { }
-                    }
-                    catch { }
-                r.Add("Prefetch apagado. A próxima abertura pode ser mais lenta.");
-            }
             if (set.Contains("valorant"))
             {
                 var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"VALORANT\Saved\Logs");
@@ -993,16 +981,6 @@ namespace Nash
                     r.Add("Cache do FiveM reparado.");
                 }
             }
-            if (set.Contains("shaders"))
-            {
-                var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                Wipe(Path.Combine(local, "D3DSCache"), null);
-                Wipe(Path.Combine(local, @"NVIDIA\DXCache"), null);
-                Wipe(Path.Combine(local, @"NVIDIA\GLCache"), null);
-                Wipe(Path.Combine(local, @"AMD\DxCache"), null);
-                Wipe(Path.Combine(local, @"AMD\GLCache"), null);
-                r.Add("Cache de shaders apagado. A próxima partida pode engasgar enquanto recria.");
-            }
             if (set.Contains("captures"))
             {
                 var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Captures");
@@ -1041,18 +1019,6 @@ namespace Nash
                     catch { }
                 }
             }
-            var edge = Process.GetProcessesByName("msedge");
-            var edgeWindow = false;
-            foreach (var p in edge)
-                if (p.MainWindowHandle != IntPtr.Zero) edgeWindow = true;
-            if (!edgeWindow)
-            {
-                foreach (var p in edge)
-                {
-                    try { p.Kill(); if (!closed.Contains("msedge")) closed.Add("msedge"); }
-                    catch { }
-                }
-            }
             if (closed.Count > 0) lines.Add("Fechados: " + string.Join(", ", closed.ToArray()) + ".");
             else lines.Add("Nenhum processo inútil aberto.");
             EnablePriv("SeProfileSingleProcessPrivilege");
@@ -1061,32 +1027,32 @@ namespace Nash
             Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out fg);
             var self = Process.GetCurrentProcess().Id;
             var trimmed = 0;
-            foreach (var p in Process.GetProcesses())
+            var processes = Process.GetProcesses();
+            try
             {
-                try
+                foreach (var p in processes)
                 {
-                    if (p.Id == fg || p.Id == self) continue;
-                    if (RamKeepName(p.ProcessName)) continue;
-                    if (p.WorkingSet64 < 30L * 1024L * 1024L) continue;
-                    var handle = Native.OpenProcess(0x0500, false, p.Id);
-                    if (handle == IntPtr.Zero) continue;
-                    try { if (Native.EmptyWorkingSet(handle)) trimmed++; }
-                    finally { Native.CloseHandle(handle); }
+                    try
+                    {
+                        if (p.Id == 0 || p.Id == fg || p.Id == self) continue;
+                        if (RamKeepName(p.ProcessName)) continue;
+                        var handle = OpenTrimHandle(p.Id);
+                        if (handle == IntPtr.Zero) continue;
+                        try { if (Native.EmptyWorkingSet(handle)) trimmed++; }
+                        finally { Native.CloseHandle(handle); }
+                    }
+                    catch { }
                 }
-                catch { }
             }
-            lines.Add("Memória reduzida em " + trimmed + " processos grandes.");
-            MemCmd(3);
-            if (full)
+            finally
             {
-                MemCmd(4);
-                lines.Add("Cache completo liberado.");
+                foreach (var p in processes) try { p.Dispose(); } catch { }
             }
-            else
-            {
-                MemCmd(5);
-                lines.Add("Cache de baixa prioridade liberado, modo suave.");
-            }
+            lines.Add("Memória reduzida em " + trimmed + " processos.");
+            var flushed = MemCmd(3);
+            if (full) lines.Add(MemCmd(4) ? "Cache completo liberado." : "O cache completo não saiu.");
+            else lines.Add(MemCmd(5) ? "Cache de baixa prioridade liberado, modo suave." : "O cache de baixa prioridade não saiu.");
+            if (!flushed) lines.Add("As páginas modificadas não foram gravadas.");
             System.Threading.Thread.Sleep(2000);
             int afterAvail;
             MemSnap(out afterAvail, out total);
@@ -1115,9 +1081,18 @@ namespace Nash
             if (totalMb < 1) totalMb = 1;
         }
 
-        static void MemCmd(int command)
+        static IntPtr OpenTrimHandle(int pid)
         {
-            Native.NtSetSystemInformation(80, ref command, 4);
+            var handle = Native.OpenProcess(0x1F0FFF, false, pid);
+            if (handle != IntPtr.Zero) return handle;
+            handle = Native.OpenProcess(0x0500, false, pid);
+            if (handle != IntPtr.Zero) return handle;
+            return Native.OpenProcess(0x1100, false, pid);
+        }
+
+        static bool MemCmd(int command)
+        {
+            return Native.NtSetSystemInformation(80, ref command, 4) == 0;
         }
 
         static void EnablePriv(string name)
@@ -1139,7 +1114,7 @@ namespace Nash
         {
             if (string.IsNullOrEmpty(name)) return true;
             var n = name.ToLowerInvariant();
-            if (n.StartsWith("valorant") || n.StartsWith("riotclient") || n.StartsWith("gta5") || n.StartsWith("fivem") || n.StartsWith("nashboost")) return true;
+            if (n.StartsWith("valorant") || n.StartsWith("riotclient") || n.StartsWith("gta5") || n.StartsWith("fivem")) return true;
             switch (n)
             {
                 case "system":
@@ -1156,14 +1131,6 @@ namespace Nash
                 case "dwm":
                 case "audiodg":
                 case "fontdrvhost":
-                case "sihost":
-                case "taskhostw":
-                case "ctfmon":
-                case "explorer":
-                case "shellexperiencehost":
-                case "startmenuexperiencehost":
-                case "searchhost":
-                case "textinputhost":
                 case "vgc":
                 case "vgtray":
                 case "cs2":
@@ -1171,10 +1138,6 @@ namespace Nash
                 case "steamwebhelper":
                 case "discord":
                 case "obs64":
-                case "opera":
-                case "ipvanish":
-                case "parsec":
-                case "parsecd":
                 case "msmpeng":
                 case "nissrv":
                 case "securityhealthservice":
@@ -1766,7 +1729,7 @@ namespace Nash
                 public ulong ullAvailVirtual;
                 public ulong ullAvailExtendedVirtual;
             }
-            [StructLayout(LayoutKind.Sequential, Pack = 4)]
+            [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct TokenPriv
             {
                 public int Count;

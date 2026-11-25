@@ -116,7 +116,12 @@ namespace NashSetup
             Grid.SetRow(buttons, 5);
             root.Children.Add(buttons);
 
-            var frame = new Border { Background = BrushOf(0x1e, 0x1f, 0x22), BorderBrush = BrushOf(0x3c, 0x3e, 0x44), BorderThickness = new Thickness(1), Child = root };
+            var frame = new Border { Background = BrushOf(0x1e, 0x1f, 0x22), BorderBrush = BrushOf(0x3c, 0x3e, 0x44), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Child = root };
+            frame.SizeChanged += delegate
+            {
+                if (frame.ActualWidth <= 0 || frame.ActualHeight <= 0) return;
+                frame.Clip = new RectangleGeometry(new Rect(0, 0, frame.ActualWidth, frame.ActualHeight), 8, 8);
+            };
             Content = frame;
             MouseLeftButtonDown += delegate { try { DragMove(); } catch { } };
         }
@@ -341,7 +346,7 @@ namespace NashSetup
             border.SetValue(Border.BackgroundProperty, new System.Windows.TemplateBindingExtension(Control.BackgroundProperty));
             border.SetValue(Border.BorderBrushProperty, new System.Windows.TemplateBindingExtension(Control.BorderBrushProperty));
             border.SetValue(Border.BorderThicknessProperty, new System.Windows.TemplateBindingExtension(Control.BorderThicknessProperty));
-            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(2));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
             var content = new System.Windows.FrameworkElementFactory(typeof(ContentPresenter));
             content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
             content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
