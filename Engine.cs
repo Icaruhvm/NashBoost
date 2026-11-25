@@ -33,6 +33,7 @@ namespace Nash
         public bool TelemetryOk;
         public bool MemoryOk;
         public bool BackgroundOk;
+        public bool GameModeOk;
         public string MouseDetail = "";
         public string KeyDetail = "";
         public string LastClean = "";
@@ -231,6 +232,16 @@ namespace Nash
             catch { }
             try
             {
+                using (var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\GameBar"))
+                {
+                    if (k != null)
+                        s.GameModeOk = Convert.ToInt32(k.GetValue("AutoGameModeEnabled", 0)) == 1
+                            && Convert.ToInt32(k.GetValue("AllowAutoGameMode", 0)) == 1;
+                }
+            }
+            catch { }
+            try
+            {
                 using (var k = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\GraphicsDrivers"))
                     s.HagsOk = Convert.ToInt32(k.GetValue("HwSchMode", 1)) == 2;
             }
@@ -268,6 +279,7 @@ namespace Nash
             if (set.Contains("telemetry")) Telemetry(r);
             if (set.Contains("ui")) Ui(r);
             if (set.Contains("background")) Background(r);
+            if (set.Contains("sysmain")) SysMain(r);
             if (set.Contains("mpo")) Mpo(r);
             if (set.Contains("memon")) Memory(r, true);
             else if (set.Contains("mem")) Memory(r, false);
@@ -278,7 +290,7 @@ namespace Nash
 
         public static JobResult OneClick()
         {
-            return Apply(new[] { "mouse", "keyboard", "gamedvr", "hags", "games", "power", "network", "telemetry", "ui", "background" }, true);
+            return Apply(new[] { "mouse", "keyboard", "gamedvr", "games", "power", "network", "telemetry", "ui", "background" }, true);
         }
 
         public static void Reboot()
@@ -321,6 +333,30 @@ namespace Nash
                 Native.SetParam(0x71, 10, IntPtr.Zero, 2);
             }
             catch { }
+        }
+
+        static int WindowsBuild()
+        {
+            try
+            {
+                using (var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                    if (k != null) return Convert.ToInt32(k.GetValue("CurrentBuildNumber"));
+            }
+            catch { }
+            return 0;
+        }
+
+        static void SysMain(JobResult r)
+        {
+            if (WindowsBuild() >= 22000)
+            {
+                Run("sc.exe", "config SysMain start= auto");
+                r.Add("Neste Windows 11 o SysMain continua ligado. Ele ajuda a abrir programas.");
+                return;
+            }
+            Run("sc.exe", "stop SysMain");
+            Run("sc.exe", "config SysMain start= disabled");
+            r.Add("SysMain desligado neste Windows 10. A próxima abertura de programas pode demorar um pouco mais.");
         }
 
         static int DisplayDpi()
@@ -549,6 +585,7 @@ namespace Nash
                 r.Add("Este Windows não tem o modo Melhor desempenho. Ficou o Alto desempenho, com mínimo de 5%.");
             }
             else r.Add("Energia no modo Melhor desempenho, sem travar a CPU.");
+            r.Add("O programa da frente tem prioridade.");
             Run("powercfg.exe", "/setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 5");
             Run("powercfg.exe", "/setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMAX 100");
             Run("powercfg.exe", "/setdcvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 5");
@@ -557,6 +594,7 @@ namespace Nash
             Run("powercfg.exe", "/setdcvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0");
             Run("powercfg.exe", "/setacvalueindex SCHEME_CURRENT 501a4d13-42af-4429-9fd1-a8218c268e20 ee12f906-d277-404b-b6da-e5fa1a576df5 0");
             Run("powercfg.exe", "/setactive SCHEME_CURRENT");
+            Dword(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\PriorityControl", "Win32PrioritySeparation", 38);
             Dword(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Session Manager\Power", "HiberbootEnabled", 0);
             var laptop = false;
             try
@@ -656,6 +694,10 @@ namespace Nash
                 "SilentInstalledAppsEnabled", "SoftLandingEnabled", "SystemPaneSuggestionsEnabled", "SubscribedContent-338388Enabled",
                 "SubscribedContent-338389Enabled", "SubscribedContent-353694Enabled", "SubscribedContent-353696Enabled" })
                 Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager", name, 0);
+            Dword(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Windows\System", "PublishUserActivities", 0);
+            Dword(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Windows\System", "EnableActivityFeed", 0);
+            Dword(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Windows\System", "UploadUserActivities", 0);
+            Dword(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors", "DisableLocation", 1);
             Dword(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot", "TurnOffWindowsCopilot", 1);
             Dword(Registry.CurrentUser, @"Software\Policies\Microsoft\Windows\WindowsCopilot", "TurnOffWindowsCopilot", 1);
             Dword(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Windows\WindowsAI", "DisableAIDataAnalysis", 1);
@@ -677,7 +719,7 @@ namespace Nash
                 @"\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip",
                 @"\Microsoft\Windows\Feedback\Siuf\DmClient" })
                 Run("schtasks.exe", "/Change /TN \"" + task + "\" /Disable");
-            r.Add("Telemetria, anúncios e sugestões de apps desligados.");
+            r.Add("Telemetria, anúncios, histórico de atividade e localização desligados.");
             r.Add("Serviços de telemetria ajustados. Antivírus e atualização seguem ativos.");
             r.Add("Tarefas de telemetria desativadas.");
             r.Reboot = true;
@@ -685,13 +727,7 @@ namespace Nash
 
         static void Ui(JobResult r)
         {
-            var build = 0;
-            try
-            {
-                using (var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
-                    build = Convert.ToInt32(k.GetValue("CurrentBuildNumber"));
-            }
-            catch { }
+            var build = WindowsBuild();
             if (build >= 22000)
                 Sz(Registry.CurrentUser, @"Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32", "", "");
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "HideFileExt", 0);
@@ -701,7 +737,10 @@ namespace Nash
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "Start_IrisRecommendations", 0);
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Search", "SearchboxTaskbarMode", 1);
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "EnableTransparency", 0);
+            Sz(Registry.CurrentUser, @"Control Panel\Desktop", "DragFullWindows", "0");
             Sz(Registry.CurrentUser, @"Control Panel\Desktop", "MenuShowDelay", "20");
+            if (build >= 22000)
+                Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "TaskbarEndTask", 1);
             Sz(Registry.CurrentUser, @"Control Panel\Desktop\WindowMetrics", "MinAnimate", "0");
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "TaskbarAnimations", 0);
             Dword(Registry.CurrentUser, @"Software\Microsoft\Windows\DWM", "EnableAeroPeek", 0);
@@ -828,7 +867,22 @@ namespace Nash
                 r.Reboot = true;
             }
             Run("bcdedit.exe", "/deletevalue useplatformclock");
-            Dword(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\PriorityControl", "Win32PrioritySeparation", 2);
+            try
+            {
+                using (var k = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\PriorityControl", true))
+                {
+                    if (k != null)
+                    {
+                        var cur = Convert.ToInt32(k.GetValue("Win32PrioritySeparation", 2));
+                        if (cur != 2 && cur != 38)
+                        {
+                            k.SetValue("Win32PrioritySeparation", 2, RegistryValueKind.DWord);
+                            r.Add("Prioridade de processador deixada por outro script foi restaurada.");
+                        }
+                    }
+                }
+            }
+            catch { }
             Dword(Registry.CurrentUser, @"System\GameConfigStore", "GameDVR_FSEBehaviorMode", 0);
             Dword(Registry.CurrentUser, @"System\GameConfigStore", "GameDVR_HonorUserFSEBehaviorMode", 0);
             Dword(Registry.CurrentUser, @"System\GameConfigStore", "GameDVR_DXGIHonorFSEWindowsCompatible", 0);
@@ -958,6 +1012,12 @@ namespace Nash
                     Wipe(dir, null);
                     r.Add("Vídeos gravados pelo Game Bar apagados.");
                 }
+            }
+            if (set.Contains("play"))
+            {
+                CloseHeavy(r);
+                if (!set.Contains("ram") && !set.Contains("ramfull"))
+                    foreach (var line in CleanRam(false)) r.Add(line);
             }
             if (set.Contains("ram") || set.Contains("ramfull"))
                 foreach (var line in CleanRam(set.Contains("ramfull"))) r.Add(line);
@@ -1111,6 +1171,10 @@ namespace Nash
                 case "steamwebhelper":
                 case "discord":
                 case "obs64":
+                case "opera":
+                case "ipvanish":
+                case "parsec":
+                case "parsecd":
                 case "msmpeng":
                 case "nissrv":
                 case "securityhealthservice":
@@ -1541,6 +1605,56 @@ namespace Nash
                 }
                 catch { }
             }
+        }
+
+        public static JobResult HeavyBoot()
+        {
+            var r = new JobResult();
+            var off = new List<string>();
+            var skipped = 0;
+            foreach (var item in ReadStartup())
+            {
+                if (!item.Enabled || item.Locked) continue;
+                if (!HeavyStartup(item.Name, item.Command)) continue;
+                var err = SetStartup(item.Id, false);
+                if (err == null) off.Add(item.Name);
+                else skipped++;
+            }
+            if (off.Count == 0)
+                r.Add(skipped > 0 ? "Não deu para tirar o papel de parede da inicialização." : "Nenhum papel de parede animado abria com o Windows.");
+            else r.Add("Deixa de abrir com o Windows: " + string.Join(", ", off.ToArray()) + ".");
+            r.Add("O resto da inicialização continua. O que sobrar, desligue na lista.");
+            return r;
+        }
+
+        static void CloseHeavy(JobResult r)
+        {
+            var closed = new List<string>();
+            foreach (var name in new[] { "wallpaper64", "wallpaper32", "Lively", "livelywpf", "RainWallpaper" })
+            {
+                Process[] found;
+                try { found = Process.GetProcessesByName(name); }
+                catch { continue; }
+                foreach (var p in found)
+                {
+                    try
+                    {
+                        p.Kill();
+                        if (!closed.Contains(name)) closed.Add(name);
+                    }
+                    catch { }
+                }
+            }
+            if (closed.Count == 0) r.Add("Nenhum papel de parede animado estava aberto.");
+            else r.Add("Papel de parede fechado: " + string.Join(", ", closed.ToArray()) + ".");
+        }
+
+        static bool HeavyStartup(string name, string command)
+        {
+            var blob = ((name ?? "") + " " + (command ?? "")).ToLowerInvariant();
+            foreach (var word in new[] { "wallpaper32", "wallpaper64", "wallpaper engine", "lively", "rainwallpaper" })
+                if (blob.Contains(word)) return true;
+            return false;
         }
 
         static int Run(string file, string args)

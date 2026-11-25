@@ -50,9 +50,9 @@ namespace NashSetup
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             WindowStyle = WindowStyle.None;
-            Background = BrushOf(0x0c, 0x0e, 0x12);
+            Background = BrushOf(0x1e, 0x1f, 0x22);
             FontFamily = new FontFamily("Segoe UI");
-            Foreground = BrushOf(0xe8, 0xea, 0xed);
+            Foreground = BrushOf(0xdc, 0xde, 0xe2);
             try
             {
                 var ico = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "nash.ico");
@@ -71,8 +71,8 @@ namespace NashSetup
             var head = new StackPanel { Orientation = Orientation.Horizontal };
             head.Children.Add(Logo());
             var titles = new StackPanel { Margin = new Thickness(12, 4, 0, 0) };
-            titles.Children.Add(Line("Nash Boost", 22, BrushOf(0xe8, 0xea, 0xed), FontWeights.SemiBold, new Thickness(0)));
-            titles.Children.Add(Line("Instalador", 13, BrushOf(0x9a, 0xa3, 0xb2), FontWeights.Normal, new Thickness(0, 2, 0, 0)));
+            titles.Children.Add(Line("Nash Boost", 18, BrushOf(0xdc, 0xde, 0xe2), FontWeights.SemiBold, new Thickness(0)));
+            titles.Children.Add(Line("Instalador", 12, BrushOf(0x8e, 0x93, 0x9a), FontWeights.Normal, new Thickness(0, 2, 0, 0)));
             head.Children.Add(titles);
             var close = MakeButton("Fechar", false);
             close.HorizontalAlignment = HorizontalAlignment.Right;
@@ -86,15 +86,15 @@ namespace NashSetup
             headGrid.Children.Add(close);
             root.Children.Add(headGrid);
 
-            var intro = Line("Baixa só o programa, direto do GitHub. Não precisa do código.\nVai para " + installDir + ".", 14, BrushOf(0x9a, 0xa3, 0xb2), FontWeights.Normal, new Thickness(0, 18, 0, 0));
+            var intro = Line("Baixa só o programa, direto do GitHub. Não precisa do código.\nVai para " + installDir + ".", 13, BrushOf(0x8e, 0x93, 0x9a), FontWeights.Normal, new Thickness(0, 18, 0, 0));
             Grid.SetRow(intro, 1);
             root.Children.Add(intro);
 
-            bar = new ProgressBar { Height = 8, Minimum = 0, Maximum = 100, Foreground = BrushOf(0x3d, 0xcc, 0x97), Background = BrushOf(0x1d, 0x23, 0x2c), BorderThickness = new Thickness(0), Margin = new Thickness(0, 0, 0, 10), VerticalAlignment = VerticalAlignment.Bottom };
+            bar = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Foreground = BrushOf(0x3f, 0x64, 0x86), Background = BrushOf(0x2e, 0x30, 0x34), BorderThickness = new Thickness(0), Margin = new Thickness(0, 0, 0, 10), VerticalAlignment = VerticalAlignment.Bottom };
             Grid.SetRow(bar, 3);
             root.Children.Add(bar);
 
-            status = Line(Installed() ? "O Nash Boost já está neste PC. Atualizar baixa a versão mais recente." : "Pronto para instalar.", 13, BrushOf(0x9a, 0xa3, 0xb2), FontWeights.Normal, new Thickness(0, 0, 0, 16));
+            status = Line(Installed() ? "O Nash Boost já está neste PC. Atualizar baixa a versão mais recente." : "Pronto para instalar.", 13, BrushOf(0x8e, 0x93, 0x9a), FontWeights.Normal, new Thickness(0, 0, 0, 16));
             status.TextWrapping = TextWrapping.Wrap;
             Grid.SetRow(status, 4);
             root.Children.Add(status);
@@ -116,7 +116,7 @@ namespace NashSetup
             Grid.SetRow(buttons, 5);
             root.Children.Add(buttons);
 
-            var frame = new Border { Background = BrushOf(0x0c, 0x0e, 0x12), BorderBrush = BrushOf(0x2c, 0x34, 0x42), BorderThickness = new Thickness(1), Child = root };
+            var frame = new Border { Background = BrushOf(0x1e, 0x1f, 0x22), BorderBrush = BrushOf(0x3c, 0x3e, 0x44), BorderThickness = new Thickness(1), Child = root };
             Content = frame;
             MouseLeftButtonDown += delegate { try { DragMove(); } catch { } };
         }
@@ -323,12 +323,12 @@ namespace NashSetup
                 MinWidth = 108,
                 Height = 38,
                 Padding = new Thickness(14, 0, 14, 0),
-                Background = primary ? BrushOf(0x3d, 0xcc, 0x97) : BrushOf(0x16, 0x1a, 0x21),
-                Foreground = primary ? BrushOf(0x06, 0x21, 0x17) : BrushOf(0xe8, 0xea, 0xed),
-                BorderBrush = primary ? BrushOf(0x3d, 0xcc, 0x97) : BrushOf(0x2c, 0x34, 0x42),
+                Background = primary ? BrushOf(0x3f, 0x64, 0x86) : BrushOf(0x26, 0x27, 0x2b),
+                Foreground = primary ? BrushOf(0xf3, 0xf5, 0xf7) : BrushOf(0xdc, 0xde, 0xe2),
+                BorderBrush = primary ? BrushOf(0x3f, 0x64, 0x86) : BrushOf(0x3c, 0x3e, 0x44),
                 BorderThickness = new Thickness(1),
-                FontSize = 14,
-                FontWeight = FontWeights.SemiBold,
+                FontSize = 13,
+                FontWeight = FontWeights.Normal,
                 Cursor = Cursors.Hand,
                 Template = Flat()
             };
@@ -341,7 +341,7 @@ namespace NashSetup
             border.SetValue(Border.BackgroundProperty, new System.Windows.TemplateBindingExtension(Control.BackgroundProperty));
             border.SetValue(Border.BorderBrushProperty, new System.Windows.TemplateBindingExtension(Control.BorderBrushProperty));
             border.SetValue(Border.BorderThicknessProperty, new System.Windows.TemplateBindingExtension(Control.BorderThicknessProperty));
-            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(2));
             var content = new System.Windows.FrameworkElementFactory(typeof(ContentPresenter));
             content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
             content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);

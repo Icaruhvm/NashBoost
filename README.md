@@ -14,7 +14,9 @@ O instalador pega só o programa, coloca em `C:\Program Files\NashBoost` e cria 
 
 A conta fica em `%LOCALAPPDATA%\GamerEdition`. Tirar o programa não apaga essa pasta.
 
-Na primeira abertura nada vem marcado. O botão de 1 clique aplica o pacote recomendado. Nas outras abas, marca o que quiser e clica em aplicar. Na aba Aplicativos, "Marcar instalados" seleciona a lista de uma vez.
+Na primeira abertura nada vem marcado. O botão de 1 clique aplica o pacote recomendado. A GPU acelerada não entra nele: em umas placas ajuda, em outras engasga, então fica na aba Jogo para quem quiser testar. Nas outras abas, marca o que quiser e clica em aplicar. Na aba Aplicativos, "Marcar instalados" seleciona a lista de uma vez. "Tirar papel de parede" só tira Wallpaper Engine, Lively ou parecido da inicialização. O resto da lista a pessoa desliga um por um.
+
+O programa não mexe em monitor, taxa de atualização nem na disposição das telas. Não para serviço de um programa específico, tipo banco de dados, e não fecha Spotify, launcher, Discord nem Steam. Na aba Limpeza, "Preparar para jogar" fecha papel de parede animado, se estiver aberto, e libera memória. Não entra no 1 clique. O SysMain só desliga no Windows 10, e só se a pessoa marcar.
 
 ## Compilar
 
